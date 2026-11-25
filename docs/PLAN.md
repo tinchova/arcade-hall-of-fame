@@ -73,7 +73,10 @@ Las etapas 3–6 no convierten un decodificador sin evidencia en uno validado. L
 | 1. Evidencia real | Parcial: muestras de Galaga y Bubble Bobble con foto. Falta Python/Tk en la iMac y fecha/revisión de las compilaciones |
 | 2. Lector | Prueba de concepto hecha en Windows con Python 3.14 y 3.13; falta correr las pruebas en Python 3.11, Catalina y Linux. Cobertura medida en [VALIDACION.md](VALIDACION.md#cobertura-del-intérprete) |
 | 3. Núcleo y SQLite | Hecho, sin configuración TOML ni correspondencias de iniciales: `scanner.py`, `storage.py`, `rankings.py` y `cli.py`, con pruebas sintéticas. Probado en la iMac con las partidas reales, en modo lectura y con la base en `/tmp` |
-| 4–6 | Sin empezar. Sin interfaz gráfica hasta que se indique |
+| 4. Interfaz | Primera versión: `ui/` con pantallas de ranking, tabla por juego y últimos récords, rotación automática, teclado, escaneo periódico y nombres reales de los juegos (gamelist de ES-DE, DAT de FBNeo, `label` de hi2txt). Probada en Windows. En la iMac se usará el Python 3.13 de python.org (Tk 8.6); falta la prueba visual allí, con el visto bueno del usuario |
+| 5–6 | Sin empezar |
+
+Interfaz: `pixelfont.py` (glifos propios de 5 x 7), `screens.py` (contenido, sin Tk), `layout.py` (operaciones de dibujo, sin Tk), `raster.py` (PNG en Python puro, para capturas y pruebas) y `tkapp.py` (la ventana). Tk solo redibuja al cambiar de pantalla; la única animación es la aparición de las filas, con 40 ms entre una y otra. El Tk 8.5.9 de Apple que trae Catalina no se usa por sus fallas conocidas.
 
 Decisiones del 2026-11-25: los juegos que no guardan iniciales (como Pac-Man) aparecen en su tabla con el máximo, pero no cuentan para el ranking; las entradas de fábrica no cuentan para nadie; por ahora no se escriben definiciones nuevas para los juegos que no tienen. La regla 5 se simplificó: las iniciales se cuentan tal cual, también en el primer escaneo. Las correspondencias entre iniciales y personas van en un `jugadores.json` opcional (JSON porque `tomllib` no existe en Python 3.8).
 
