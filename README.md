@@ -12,6 +12,7 @@ Proyecto para clasificar jugadores de máquinas arcade por la cantidad de juegos
 - [Evidencia de Bubble Bobble](docs/INVESTIGACION_BUBBLE_BOBBLE.md): segunda tabla contrastada con archivo real.
 - [Arquitectura y plan de implementación](docs/PLAN.md), con el estado de cada etapa.
 - [Protocolo de validación con archivos reales](docs/VALIDACION.md) y resultados de cobertura.
+- [Cobertura sobre la colección de FBNeo de la iMac](docs/COBERTURA_FBNEO.md): qué juegos se pueden leer y por qué no el resto.
 - [Contribución y preparación para GitHub](CONTRIBUTING.md).
 
 ## Primer entorno objetivo
