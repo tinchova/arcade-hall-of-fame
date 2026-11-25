@@ -135,6 +135,9 @@ class Database:
             (game, current or 0),
         ).fetchone()
 
+    def last_scan(self) -> Optional[sqlite3.Row]:
+        return self.conn.execute("SELECT * FROM scans ORDER BY id DESC LIMIT 1").fetchone()
+
     def events(self, limit: int) -> List[sqlite3.Row]:
         return self.conn.execute(
             "SELECT * FROM record_events ORDER BY detected_utc DESC, id DESC LIMIT ?", (limit,)

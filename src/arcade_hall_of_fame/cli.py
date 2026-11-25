@@ -7,6 +7,7 @@ Uso, desde la raíz del repositorio::
     python -m arcade_hall_of_fame juego galaga
     python -m arcade_hall_of_fame records [-n 10]
     python -m arcade_hall_of_fame aceptar <juego>
+    python -m arcade_hall_of_fame pantalla --carpeta "<carpeta de partidas>/fbneo"
 
 Opciones comunes: ``--base`` (archivo SQLite; por defecto en la carpeta de
 datos del usuario) y ``--definiciones`` (carpeta ``src/main/db`` descargada con
@@ -51,12 +52,17 @@ def print_table(headers: List[str], rows: List[List[str]]) -> None:
         print("  ".join(str(c).ljust(w) for c, w in zip(row, widths)).rstrip())
 
 
-def cmd_scan(args, db: Database) -> int:
+def make_scanner(args, db: Database):
+    """Devuelve una función que escanea args.carpeta con la configuración dada."""
     library = DefinitionLibrary(args.definiciones)
     factory = FactoryTables(Path(args.definiciones).parent / "db_defaults")
     regions = load_hiscore_dat(args.hiscore_dat) if args.hiscore_dat else None
     revision = REVISION if REVISION in str(Path(args.definiciones).resolve()) else "desconocida"
-    report = scan(Path(args.carpeta), db, library, factory, revision, regions)
+    return lambda: scan(Path(args.carpeta), db, library, factory, revision, regions)
+
+
+def cmd_scan(args, db: Database) -> int:
+    report = make_scanner(args, db)()
     print(f"Archivos .hi: {report.files}; nuevos estados: {len(report.new_observations)}; "
           f"sin cambios: {len(report.unchanged)}; con error: {len(report.errors)}")
     for game, previous, new, holders in report.records:
@@ -133,6 +139,73 @@ def cmd_accept(args, db: Database) -> int:
     return 0
 
 
+def parse_size(text: str):
+    try:
+        width, height = (int(v) for v in text.lower().split("x"))
+    except ValueError:
+        raise argparse.ArgumentTypeError("usar ANCHOxALTO, por ejemplo 1280x720") from None
+    return width, height
+
+
+def cmd_screen(args, db: Database) -> int:
+    from .ui.layout import layout
+    from .ui.raster import Raster
+    from .ui.screens import build_screens
+    from .ui.tkapp import FOOTER
+
+    from .fetch_names import DEFAULT_DIR as DEFAULT_DATS
+    from .names import from_files
+
+    players = Players.load(Path(args.jugadores))
+    dats = [Path(d) for d in (args.dat or [])] or [DEFAULT_DATS]
+    refresh = None
+    if args.carpeta:
+        scanner = make_scanner(args, db)
+        refresh = lambda: scanner()  # noqa: E731
+
+    cache = {}
+
+    def build():
+        # Los nombres se leen una vez (el DAT de FBNeo pesa varios MB); los juegos
+        # nuevos que aparezcan después se agregan sin releer el DAT.
+        games = [s["game"] for s in db.sources()]
+        if "names" not in cache or not all(g in cache["games"] for g in games):
+            cache["names"] = from_files(args.gamelist, dats, Path(args.definiciones), games)
+            cache["games"] = set(games)
+        return build_screens(db, players, cache["names"])
+
+    if args.capturas or args.prueba:
+        if refresh is not None:
+            refresh()
+        screens = build()
+        width, height = args.tamano
+        if args.prueba:
+            import tkinter
+
+            version = tkinter.Tcl().eval("info patchlevel")
+            for screen in screens:
+                Raster(width, height).draw(layout(screen, width, height, FOOTER, "1/1"))
+            print(f"Modo de prueba: Tk {version}; {len(screens)} pantallas generadas a {width}x{height} sin abrir ventana.")
+            return 0
+        out = Path(args.capturas)
+        out.mkdir(parents=True, exist_ok=True)
+        seen = set()
+        for i, screen in enumerate(screens, start=1):
+            if screen.key in seen:
+                continue
+            seen.add(screen.key)
+            name = screen.key.replace(":", "-") + (f"-{screen.page.replace('/', 'de')}" if screen.page else "")
+            Raster(width, height).draw(layout(screen, width, height, FOOTER, f"{i}/{len(screens)}")).save(out / f"{name}.png")
+        print(f"{len(seen)} capturas en {out}")
+        return 0
+
+    from .ui.tkapp import run
+
+    run(build, refresh, args.segundos, args.escaneo if refresh else 0, not args.sin_animacion,
+        args.ventana, args.salir_en)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="arcade_hall_of_fame", description="Salón de la fama arcade local.")
     parser.add_argument("--base", default=os.environ.get("ARCADE_HOF_BASE") or str(default_database()),
@@ -154,6 +227,23 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("records", help="últimos récords batidos")
     p.add_argument("-n", type=int, default=10)
     p.set_defaults(func=cmd_records)
+    p = sub.add_parser("pantalla", help="interfaz a pantalla completa (Esc para salir)")
+    p.add_argument("--carpeta", default=os.environ.get("ARCADE_HOF_PARTIDAS"),
+                   help="carpeta de partidas a escanear al abrir y cada tanto")
+    p.add_argument("--hiscore-dat", help="hiscore.dat de FBNeo, para comprobar regiones de memoria")
+    p.add_argument("--segundos", type=float, default=8.0, help="segundos por pantalla (8)")
+    p.add_argument("--escaneo", type=float, default=60.0, help="segundos entre escaneos (60)")
+    p.add_argument("--sin-animacion", action="store_true", help="mostrar las filas sin aparición escalonada")
+    p.add_argument("--gamelist", default=os.environ.get("ARCADE_HOF_GAMELIST"),
+                   help="gamelist.xml de ES-DE para los nombres de los juegos (solo lectura)")
+    p.add_argument("--dat", action="append",
+                   help="DAT de FBNeo o carpeta con DAT (por defecto, los bajados con fetch_names)")
+    p.add_argument("--ventana", type=parse_size, help="ventana de ANCHOxALTO en lugar de pantalla completa")
+    p.add_argument("--salir-en", type=float, help="cerrar sola después de N segundos (pruebas)")
+    p.add_argument("--prueba", action="store_true", help="comprobar Tk y generar las pantallas sin abrir ventana")
+    p.add_argument("--capturas", help="guardar PNG de cada pantalla en esta carpeta, sin abrir ventana")
+    p.add_argument("--tamano", type=parse_size, default=(1920, 1080), help="tamaño de capturas y prueba (1920x1080)")
+    p.set_defaults(func=cmd_screen)
     p = sub.add_parser("aceptar", help="aceptar un estado pendiente como nueva línea base")
     p.add_argument("nombre")
     p.set_defaults(func=cmd_accept)
