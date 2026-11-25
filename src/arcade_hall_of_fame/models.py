@@ -33,3 +33,7 @@ class UnsupportedDefinition(DefinitionError):
 
 class FormatError(HighScoreError):
     """Los bytes no se pueden interpretar con la definición elegida."""
+
+
+class ConfigError(HighScoreError):
+    """La configuración local (por ejemplo, jugadores.json) no es válida."""

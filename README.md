@@ -59,7 +59,13 @@ Objetivo: Python 3.11; también funciona con el Python 3.8 que trae macOS Catali
    python -m unittest
    ```
 
-Las iniciales son las guardadas por el juego, y el ranking las usa tal cual: todavía no hay correspondencias entre iniciales y personas. No dan crédito las entradas de fábrica (según las tablas `db_defaults` de hi2txt-xml) ni los juegos que no guardan iniciales, como Pac-Man; esos juegos sí aparecen en su tabla. Si una definición usa una operación que el intérprete todavía no implementa, el error lo dice y no se muestran datos. La comprobación opcional con muestras reales y la medición de cobertura se describen en [VALIDACION.md](docs/VALIDACION.md).
+Las iniciales son las guardadas por el juego, y el ranking las usa tal cual. Para agrupar varias iniciales de una misma persona, crear un `jugadores.json` opcional en la carpeta de datos (o indicarlo con `--jugadores`):
+
+```json
+{"jugadores": {"Ana": ["NIC", "N.C"]}}
+```
+
+ No dan crédito las entradas de fábrica (según las tablas `db_defaults` de hi2txt-xml) ni los juegos que no guardan iniciales, como Pac-Man; esos juegos sí aparecen en su tabla. Si una definición usa una operación que el intérprete todavía no implementa, el error lo dice y no se muestran datos. La comprobación opcional con muestras reales y la medición de cobertura se describen en [VALIDACION.md](docs/VALIDACION.md).
 
 ## Créditos
 

@@ -87,6 +87,10 @@ def default_database() -> Path:
     return default_data_dir() / "historial.sqlite3"
 
 
+def default_players_file() -> Path:
+    return default_data_dir() / "jugadores.json"
+
+
 class Database:
     def __init__(self, path: Path):
         self.path = Path(path)

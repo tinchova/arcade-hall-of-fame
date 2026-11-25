@@ -10,7 +10,8 @@ from pathlib import Path
 from arcade_hall_of_fame import cli
 from arcade_hall_of_fame.hi2txt import DefinitionLibrary
 from arcade_hall_of_fame.hi2txt.defaults import FactoryTables
-from arcade_hall_of_fame.models import SourceReadError
+from arcade_hall_of_fame.models import ConfigError, SourceReadError
+from arcade_hall_of_fame.players import Players
 from arcade_hall_of_fame.rankings import leaders, player_ranking, recent_records
 from arcade_hall_of_fame.scanner import scan
 from arcade_hall_of_fame.storage import Database
@@ -68,6 +69,7 @@ class HistoryTestCase(unittest.TestCase):
         (defaults / "democlon.xml").write_bytes(xml('<sameas id="demo"/>'))
         self.db_dir = db_dir
         self.db_path = root / "datos" / "historial.sqlite3"
+        self.players_path = root / "datos" / "jugadores.json"
         self.db = Database(self.db_path)
         self.addCleanup(lambda: self.db.close())
         self.library = DefinitionLibrary(db_dir)
@@ -205,11 +207,37 @@ class RankingTest(HistoryTestCase):
         self.assertEqual(ranking, [(1, "AB", 2), (2, "CD", 1), (2, "EF", 1), (2, "GH", 1)])
 
 
+class PlayersTest(HistoryTestCase):
+    def test_iniciales_de_una_persona_cuentan_una_vez_por_juego(self):
+        for name in ("juego1", "juego2"):
+            (self.db_dir / f"{name}.xml").write_bytes(DEMO_BCD)
+        self.write("juego1", demo_file([(100, "NC"), (100, "N."), (10, "EF")]))
+        self.write("juego2", demo_file([(200, "N."), (150, "CD"), (10, "EF")]))
+        self.scan()
+        players = Players.from_data({"jugadores": {"Ana": ["NC", "N."]}})
+        self.assertEqual(leaders(self.db, players)[0].holders, ("Ana",))
+        ranking = [(r.initials, r.count) for r in player_ranking(self.db, players)]
+        self.assertEqual(ranking, [("Ana", 2)])
+        self.assertEqual([(r.initials, r.count) for r in player_ranking(self.db)], [("N.", 2), ("NC", 1)])
+
+    def test_archivo_opcional_y_errores(self):
+        self.assertEqual(Players.load(self.players_path).mapping, {})
+        self.players_path.write_text('{"jugadores": {"Ana": ["ANA"], "Otra": ["ANA"]}}', encoding="utf-8")
+        with self.assertRaisesRegex(ConfigError, "ANA"):
+            Players.load(self.players_path)
+        self.players_path.write_text("{no es json", encoding="utf-8")
+        with self.assertRaises(ConfigError):
+            Players.load(self.players_path)
+        with self.assertRaises(ConfigError):
+            Players.from_data({"jugadores": {"Ana": "ANA"}})
+
+
 class CliTest(HistoryTestCase):
     def run_cli(self, *args) -> str:
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
-            code = cli.main(["--base", str(self.db_path), "--definiciones", str(self.db_dir), *args])
+            code = cli.main(["--base", str(self.db_path), "--definiciones", str(self.db_dir),
+                             "--jugadores", str(self.players_path), *args])
         self.assertIn(code, (0, 1))
         return out.getvalue()
 
@@ -230,6 +258,9 @@ class CliTest(HistoryTestCase):
         self.assertIn("XY", self.run_cli("records"))
         self.assertIn("No hay una tabla", self.run_cli("juego", "otro"))
         self.assertIn("no tiene estados pendientes", self.run_cli("aceptar", "demo"))
+        self.players_path.write_text('{"jugadores": {"Quique": ["QZ"]}}', encoding="utf-8")
+        self.assertIn("Quique", self.run_cli("ranking"))
+        self.assertIn("Quique", self.run_cli("records"))
         self.db = Database(self.db_path)
 
 

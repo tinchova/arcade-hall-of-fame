@@ -10,7 +10,8 @@ Uso, desde la raíz del repositorio::
 
 Opciones comunes: ``--base`` (archivo SQLite; por defecto en la carpeta de
 datos del usuario) y ``--definiciones`` (carpeta ``src/main/db`` descargada con
-``python -m arcade_hall_of_fame.hi2txt.fetch``).
+``python -m arcade_hall_of_fame.hi2txt.fetch``) y ``--jugadores``
+(``jugadores.json`` opcional; ver ``players.py``).
 """
 
 from __future__ import annotations
@@ -29,7 +30,8 @@ from .hi2txt.hiscore_dat import load_hiscore_dat
 from .models import HighScoreError
 from .rankings import leaders, player_ranking, recent_records
 from .scanner import scan
-from .storage import Database, default_database
+from .players import Players
+from .storage import Database, default_database, default_players_file
 
 DEFAULT_DB_DIR = Path("local") / "hi2txt-xml" / REVISION / "src" / "main" / "db"
 
@@ -67,13 +69,14 @@ def cmd_scan(args, db: Database) -> int:
 
 
 def cmd_ranking(args, db: Database) -> int:
-    ranking = player_ranking(db)
+    players = Players.load(Path(args.jugadores))
+    ranking = player_ranking(db, players)
     if ranking:
-        print_table(["Pos", "Iniciales", "Primeros puestos", "Juegos"],
+        print_table(["Pos", "Jugador", "Primeros puestos", "Juegos"],
                     [[str(r.position), r.initials, str(r.count), ", ".join(r.games)] for r in ranking])
     else:
         print("Todavía nadie tiene un primer puesto atribuible.")
-    without = [g for g in leaders(db) if not g.holders]
+    without = [g for g in leaders(db, players) if not g.holders]
     if without:
         print("\nJuegos sin primer puesto atribuible:")
         for g in without:
@@ -108,7 +111,7 @@ def cmd_game(args, db: Database) -> int:
 
 
 def cmd_records(args, db: Database) -> int:
-    events = recent_records(db, args.n)
+    events = recent_records(db, args.n, Players.load(Path(args.jugadores)))
     if not events:
         print("Todavía no se registraron récords batidos (el primer escaneo es la línea base).")
         return 0
@@ -136,6 +139,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="archivo SQLite (por defecto, en la carpeta de datos del usuario)")
     parser.add_argument("--definiciones", default=os.environ.get("ARCADE_HOF_DEFINICIONES") or str(DEFAULT_DB_DIR),
                         help="carpeta src/main/db de hi2txt-xml")
+    parser.add_argument("--jugadores", default=os.environ.get("ARCADE_HOF_JUGADORES") or str(default_players_file()),
+                        help="jugadores.json opcional que agrupa iniciales por persona")
     sub = parser.add_subparsers(dest="comando")
     p = sub.add_parser("escanear", help="leer los .hi de una carpeta y registrar cambios")
     p.add_argument("carpeta")
