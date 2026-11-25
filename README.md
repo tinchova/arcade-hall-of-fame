@@ -13,6 +13,7 @@ Proyecto para clasificar jugadores de máquinas arcade por la cantidad de juegos
 - [Arquitectura y plan de implementación](docs/PLAN.md), con el estado de cada etapa.
 - [Protocolo de validación con archivos reales](docs/VALIDACION.md) y resultados de cobertura.
 - [Cobertura sobre la colección de FBNeo de la iMac](docs/COBERTURA_FBNEO.md): qué juegos se pueden leer y por qué no el resto.
+- [Integración con ES-DE como protector de pantalla](docs/INTEGRACION_ESDE.md): evaluación y propuesta, sin aplicar.
 - [Contribución y preparación para GitHub](CONTRIBUTING.md).
 
 ## Primer entorno objetivo
