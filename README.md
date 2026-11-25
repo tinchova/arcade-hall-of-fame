@@ -84,7 +84,7 @@ Las iniciales son las guardadas por el juego, y el ranking las usa tal cual. Par
 {"jugadores": {"Ana": ["NIC", "N.C"]}}
 ```
 
- No dan crédito las entradas de fábrica (según las tablas `db_defaults` de hi2txt-xml) ni los juegos que no guardan iniciales, como Pac-Man; esos juegos sí aparecen en su tabla. Si una definición usa una operación que el intérprete todavía no implementa, el error lo dice y no se muestran datos. La comprobación opcional con muestras reales y la medición de cobertura se describen en [VALIDACION.md](docs/VALIDACION.md).
+ No dan crédito las entradas de fábrica (según las tablas `db_defaults` de hi2txt-xml) ni los juegos que no guardan iniciales, como Pac-Man. Esos juegos se guardan en la base y aparecen en `juego <nombre>`, pero la pantalla los oculta salvo con `--mostrar-sin-iniciales`. Si una definición usa una operación que el intérprete todavía no implementa, el error lo dice y no se muestran datos. La comprobación opcional con muestras reales y la medición de cobertura se describen en [VALIDACION.md](docs/VALIDACION.md).
 
 ## Créditos
 

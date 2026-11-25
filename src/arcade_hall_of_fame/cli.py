@@ -172,7 +172,7 @@ def cmd_screen(args, db: Database) -> int:
         if "names" not in cache or not all(g in cache["games"] for g in games):
             cache["names"] = from_files(args.gamelist, dats, Path(args.definiciones), games)
             cache["games"] = set(games)
-        return build_screens(db, players, cache["names"])
+        return build_screens(db, players, cache["names"], show_no_initials=args.mostrar_sin_iniciales)
 
     if args.capturas or args.prueba:
         if refresh is not None:
@@ -234,6 +234,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--segundos", type=float, default=8.0, help="segundos por pantalla (8)")
     p.add_argument("--escaneo", type=float, default=60.0, help="segundos entre escaneos (60)")
     p.add_argument("--sin-animacion", action="store_true", help="mostrar las filas sin aparición escalonada")
+    p.add_argument("--mostrar-sin-iniciales", action="store_true",
+                   default=os.environ.get("ARCADE_HOF_MOSTRAR_SIN_INICIALES", "") in ("1", "si", "true"),
+                   help="mostrar también los juegos que no guardan iniciales (ocultos por defecto)")
     p.add_argument("--gamelist", default=os.environ.get("ARCADE_HOF_GAMELIST"),
                    help="gamelist.xml de ES-DE para los nombres de los juegos (solo lectura)")
     p.add_argument("--dat", action="append",

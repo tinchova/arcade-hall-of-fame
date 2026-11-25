@@ -97,17 +97,24 @@ class ScreensTest(HistoryTestCase):
         keys = [s.key for s in screens]
         self.assertEqual(keys[:2], ["ranking", "records"])
         self.assertEqual(keys.count("ranking"), 2)  # vuelve al ranking cada 4 juegos
-        self.assertEqual(len([k for k in keys if k.startswith("juego:")]), 8)
+        self.assertEqual(len([k for k in keys if k.startswith("juego:")]), 7)  # solotop, oculto
         ranking = screens[0]
         self.assertEqual(ranking.rows[0][1][0], "AB")
         self.assertEqual(ranking.rows[0][2][0], "6")
-        self.assertIn("2 JUEGOS NO SUMAN", ranking.notes[0][0])
+        self.assertEqual(ranking.notes[0][0], "1 JUEGO SIN TITULAR: TABLA DE FABRICA")
         by_key = {s.key: s for s in screens}
         self.assertEqual(by_key["juego:demo"].rows[0][3][0], "FABRICA")
         self.assertFalse(by_key["juego:demo"].highlight_first)
-        self.assertIn("SIN INICIALES", by_key["juego:solotop"].notes[0][0])
+        self.assertNotIn("juego:solotop", by_key)
         self.assertEqual(by_key["records"].rows, [])
-        self.assertTrue(screens[0].status.startswith("8 JUEGOS  ULTIMO ESCANEO "))
+        self.assertEqual(by_key["records"].columns[3].label, "JUGADOR")
+        shown = {s.key: s for s in build_screens(self.db, Players(), show_no_initials=True)}
+        self.assertIn("SIN INICIALES", shown["juego:solotop"].notes[0][0])
+        self.assertEqual(shown["ranking"].notes[0][0], "2 SIN TITULAR: FABRICA O SIN INICIALES")
+        for screen in shown.values():  # ninguna nota ni encabezado se recorta
+            self.assertTrue(all(len(text) <= 42 for text, _ in screen.notes))
+            self.assertTrue(all(len(c.label) <= c.width for c in screen.columns))
+        self.assertTrue(screens[0].status.startswith("7 JUEGOS  ULTIMO ESCANEO "))
 
     def test_ranking_paginado(self):
         for i in range(12):
