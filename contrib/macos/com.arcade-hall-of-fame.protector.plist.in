@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Plantilla del LaunchAgent que mantiene al día las imágenes del protector.
+  instalar_protector.sh reemplaza los valores @...@ y la copia a
+  ~/Library/LaunchAgents/. launchd la ejecuta al iniciar sesión y cada vez que
+  cambia algo en la carpeta de partidas de FBNeo (WatchPaths); no corre a
+  intervalos fijos. Si los datos no cambiaron, el comando no reescribe nada.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.arcade-hall-of-fame.protector</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>@PYTHON@</string>
+        <string>-m</string>
+        <string>arcade_hall_of_fame</string>
+        <string>protector</string>
+        <string>--salida</string>
+        <string>@SALIDA@</string>
+        <string>--carpeta</string>
+        <string>@PARTIDAS@</string>
+        <string>--hiscore-dat</string>
+        <string>@HISCORE_DAT@</string>
+        <string>--gamelist</string>
+        <string>@GAMELIST@</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>@REPO@</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key>
+        <string>@REPO@/src</string>
+    </dict>
+
+    <key>WatchPaths</key>
+    <array>
+        <string>@PARTIDAS@</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>Nice</key>
+    <integer>10</integer>
+
+    <key>LowPriorityIO</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>@LOG@</string>
+
+    <key>StandardErrorPath</key>
+    <string>@LOG@</string>
+</dict>
+</plist>

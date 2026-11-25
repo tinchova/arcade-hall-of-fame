@@ -49,14 +49,23 @@ def load_gamelist(path: Path) -> Dict[str, str]:
     return names
 
 
-def load_dat(path: Path) -> Dict[str, str]:
-    """DAT XML de ClrMame Pro (FBNeo, MAME): set → descripción."""
+def load_dat(path: Path, details: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """DAT XML de ClrMame Pro (FBNeo, MAME): set → descripción.
+
+    Si se pasa ``details``, se completa con set → "año / fabricante".
+    """
     names: Dict[str, str] = {}
     for _event, element in ET.iterparse(str(path)):
         if element.tag in ("game", "machine"):
             set_name, description = element.get("name"), (element.findtext("description") or "").strip()
             if set_name and description:
                 names[set_name] = description
+                if details is not None:
+                    year = (element.findtext("year") or "").strip()
+                    maker = clean(element.findtext("manufacturer") or "")
+                    text = " / ".join(part for part in (year, maker) if part and "?" not in part)
+                    if text:
+                        details[set_name] = text
             element.clear()
     return names
 
@@ -84,6 +93,11 @@ class GameNames:
         self.sources = [s for s in sources if s]
         self.games: Iterable[str] = ()
         self._cache: Dict[str, str] = {}
+        self.details: Dict[str, str] = {}
+
+    def detail(self, game: str) -> str:
+        """Año y fabricante, por ejemplo "1986 / Taito"; vacío si no se conocen."""
+        return self.details.get(game, "")
 
     def full(self, game: str) -> Optional[str]:
         for source in self.sources:
@@ -134,16 +148,18 @@ def from_files(gamelist: Optional[str], dats: Iterable[Path], definitions_dir: O
         except (ET.ParseError, OSError):
             pass
     merged: Dict[str, str] = {}
+    details: Dict[str, str] = {}
     for item in dats:
         paths = sorted(Path(item).glob("*.dat")) if Path(item).is_dir() else [Path(item)]
         for path in paths:
             if path.is_file():
                 try:
-                    merged.update(load_dat(path))
+                    merged.update(load_dat(path, details))
                 except (ET.ParseError, OSError):
                     pass
     sources.append(merged)
     sources.append(load_labels(definitions_dir, games))
     names = GameNames(*sources)
+    names.details = details
     names.set_games(games)
     return names

@@ -1,5 +1,28 @@
 # Integración con ES-DE como protector de pantalla
 
+**Estado:** camino A elegido y preparado en el repositorio (comando `protector` y LaunchAgent). No está instalado en la iMac y la configuración de ES-DE no cambió: falta que el usuario confirme el cambio del protector de video a slideshow.
+
+## Instalación (cuando el usuario lo confirme)
+
+1. Generar y probar las imágenes, e instalar el LaunchAgent (desde la carpeta del repositorio clonado):
+
+   ```sh
+   contrib/macos/instalar_protector.sh
+   ```
+
+   El script verifica las rutas, corre una generación de prueba, completa la plantilla `contrib/macos/com.arcade-hall-of-fame.protector.plist.in`, la valida con `plutil` y la carga con `launchctl`. Las rutas se pueden cambiar con las variables `PYTHON`, `PARTIDAS`, `HISCORE_DAT`, `GAMELIST` y `SALIDA`. Las imágenes quedan por defecto en `~/Library/Application Support/arcade-hall-of-fame/protector` y el registro en `~/Library/Logs/arcade-hall-of-fame-protector.log`.
+
+2. En ES-DE, en la configuración del protector de pantalla: tipo SLIDESHOW, USE CUSTOM IMAGES activado y CUSTOM IMAGE DIRECTORY apuntando a la carpeta de imágenes.
+
+Para quitarlo: `contrib/macos/instalar_protector.sh --desinstalar` y volver a elegir el protector de video en ES-DE.
+
+### Cuándo se regeneran las imágenes
+
+- launchd ejecuta el comando al iniciar sesión y cada vez que cambia algo en la carpeta de partidas de FBNeo (`WatchPaths`), es decir, cuando FBNeo guarda un `.hi`. No hay ejecuciones a intervalos fijos.
+- El comando escanea y compara el estado de los datos con el de la generación anterior (última tabla registrada, tabla vigente de cada juego, opciones y fecha del `gamelist.xml`). Si no cambió nada, termina sin armar ni escribir imágenes.
+- Si algo cambió, solo reescribe las pantallas cuyo contenido cambió. Escribe con un nombre temporal (`.part`) y renombra al terminar, borra las imágenes propias (`hof-*.png`) que sobran y no toca otros archivos de la carpeta.
+- La línea de estado de las imágenes muestra la fecha del último cambio, no la del último escaneo, para que las imágenes no cambien solo porque pasó el tiempo.
+
 Evaluación del 2026-11-25, hecha en modo lectura sobre la iMac: ES-DE 3.0.2, `es_settings.xml`, carpeta `~/ES-DE` y la aplicación. No se cambió nada.
 
 ## Lo que hay hoy
@@ -21,10 +44,7 @@ Cambios en la configuración del usuario (desde el menú de ES-DE, Configuració
 4. Cambio de imagen: 8 a 10 segundos (hoy, 10).
 5. Líneas de barrido del slideshow: desactivadas (la imagen ya las trae) y estirar imágenes: desactivado.
 
-Para mantener las imágenes al día hay dos opciones; la elección es del usuario:
-
-- **Scripts de eventos.** Activar `CustomEventScripts` y agregar un script en `~/ES-DE/scripts/screensaver-start/` (y en `startup/`) que, en segundo plano, escanee y regenere los PNG. Si se confirma `game-end`, regenerar al terminar cada partida es lo más preciso.
-- **Agente de launchd.** Un `LaunchAgent` del usuario que regenere cada 5 minutos, sin tocar ES-DE.
+Para mantener las imágenes al día se eligió un `LaunchAgent` con `WatchPaths` sobre la carpeta de partidas: no activa `CustomEventScripts` ni toca ES-DE (ver "Cuándo se regeneran las imágenes").
 
 La generación escribe en archivos temporales y los renombra al terminar, para que ES-DE nunca lea una imagen a medio escribir, y borra las imágenes de juegos que ya no estén. Pendiente de comprobar en la iMac: que ES-DE relea la carpeta cada vez que arranca el protector, y en qué orden muestra las imágenes (si es aleatorio, el ranking puede aparecer en cualquier momento).
 
@@ -39,6 +59,8 @@ Con `CustomEventScripts` activado, un script en `screensaver-start/` abriría la
 Es más frágil y no aporta nada visible que A no tenga, salvo la animación de filas.
 
 ## Combinar con el tema de ES-DE
+
+Pospuesto: Linear es el tema por defecto de ES-DE y el usuario todavía no eligió el suyo. Por ahora queda solo el estilo arcade. Lo que sigue documenta lo evaluado.
 
 Tema activo: **Linear** (`linear-es-de`), incluido en ES-DE, en modo oscuro (`ThemeColorScheme = dark`) y variante con lista de texto y videos. Licencia MIT (Leon Styhre, Weestuarty); se basa en ESonline. Paleta del esquema oscuro: fondo `#373737`, texto principal `#FAFAFA`, secundario `#C2C2C2`, panel de datos `#303030`, etiquetas `#ABABAB` y barra de ayuda negra. Fuentes: Gilroy Light (títulos) y Oxygen Regular (texto).
 

@@ -8,6 +8,7 @@ Uso, desde la raíz del repositorio::
     python -m arcade_hall_of_fame records [-n 10]
     python -m arcade_hall_of_fame aceptar <juego>
     python -m arcade_hall_of_fame pantalla --carpeta "<carpeta de partidas>/fbneo"
+    python -m arcade_hall_of_fame protector --salida <carpeta de imágenes> --carpeta "<partidas>/fbneo"
 
 Opciones comunes: ``--base`` (archivo SQLite; por defecto en la carpeta de
 datos del usuario) y ``--definiciones`` (carpeta ``src/main/db`` descargada con
@@ -147,32 +148,38 @@ def parse_size(text: str):
     return width, height
 
 
-def cmd_screen(args, db: Database) -> int:
-    from .ui.layout import layout
-    from .ui.raster import Raster
-    from .ui.screens import build_screens
-    from .ui.tkapp import FOOTER
-
+def screen_builder(args, db: Database):
+    """Devuelve una función que arma las pantallas con los nombres de los juegos."""
     from .fetch_names import DEFAULT_DIR as DEFAULT_DATS
     from .names import from_files
+    from .ui.screens import build_screens
 
     players = Players.load(Path(args.jugadores))
     dats = [Path(d) for d in (args.dat or [])] or [DEFAULT_DATS]
-    refresh = None
-    if args.carpeta:
-        scanner = make_scanner(args, db)
-        refresh = lambda: scanner()  # noqa: E731
-
     cache = {}
 
     def build():
-        # Los nombres se leen una vez (el DAT de FBNeo pesa varios MB); los juegos
-        # nuevos que aparezcan después se agregan sin releer el DAT.
+        # Los nombres se leen una vez (el DAT de FBNeo pesa varios MB); solo se
+        # vuelven a leer si aparece un juego que no estaba.
         games = [s["game"] for s in db.sources()]
         if "names" not in cache or not all(g in cache["games"] for g in games):
             cache["names"] = from_files(args.gamelist, dats, Path(args.definiciones), games)
             cache["games"] = set(games)
         return build_screens(db, players, cache["names"], show_no_initials=args.mostrar_sin_iniciales)
+
+    return build
+
+
+def cmd_screen(args, db: Database) -> int:
+    from .ui.layout import layout
+    from .ui.raster import Raster
+    from .ui.tkapp import FOOTER
+
+    refresh = None
+    if args.carpeta:
+        scanner = make_scanner(args, db)
+        refresh = lambda: scanner()  # noqa: E731
+    build = screen_builder(args, db)
 
     if args.capturas or args.prueba:
         if refresh is not None:
@@ -195,7 +202,8 @@ def cmd_screen(args, db: Database) -> int:
                 continue
             seen.add(screen.key)
             name = screen.key.replace(":", "-") + (f"-{screen.page.replace('/', 'de')}" if screen.page else "")
-            Raster(width, height).draw(layout(screen, width, height, FOOTER, f"{i}/{len(screens)}")).save(out / f"{name}.png")
+            ops = layout(screen, width, height, FOOTER, f"{i}/{len(screens)}")
+            Raster(width, height).draw(ops).save(out / f"{name}.png")
         print(f"{len(seen)} capturas en {out}")
         return 0
 
@@ -204,6 +212,37 @@ def cmd_screen(args, db: Database) -> int:
     run(build, refresh, args.segundos, args.escaneo if refresh else 0, not args.sin_animacion,
         args.ventana, args.salir_en)
     return 0
+
+
+def cmd_protector(args, db: Database) -> int:
+    """Escanea y, solo si cambiaron los datos, actualiza los PNG del protector de pantalla."""
+    from .protector import data_state, generate
+
+    if args.carpeta:
+        make_scanner(args, db)()
+    width, height = args.tamano
+    state = data_state(db, (width, height, args.mostrar_sin_iniciales, args.gamelist, args.dat))
+    report = generate(lambda: build_screens_for_protector(args, db), Path(args.salida), width, height, state)
+    if report.skipped:
+        print(f"Protector: sin cambios en los datos; no se reescribió nada en {args.salida}")
+    else:
+        print(f"Protector: {len(report.written)} imágenes nuevas o cambiadas, {len(report.unchanged)} iguales, "
+              f"{len(report.removed)} borradas, en {args.salida}")
+    return 0
+
+
+def build_screens_for_protector(args, db: Database):
+    from .ui.screens import local_stamp
+
+    screens = screen_builder(args, db)()
+    # La línea de estado muestra el último cambio (no el último escaneo), para que
+    # las imágenes solo cambien cuando cambian los datos.
+    last = db.last_change()
+    count = sum(1 for s in screens if s.key.startswith("juego:"))
+    status = f"{count} JUEGOS  ACTUALIZADO {local_stamp(last)}" if last else f"{count} JUEGOS"
+    for screen in screens:
+        screen.status = status
+    return screens
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -247,6 +286,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--capturas", help="guardar PNG de cada pantalla en esta carpeta, sin abrir ventana")
     p.add_argument("--tamano", type=parse_size, default=(1920, 1080), help="tamaño de capturas y prueba (1920x1080)")
     p.set_defaults(func=cmd_screen)
+    p = sub.add_parser("protector", help="generar los PNG para el protector de pantalla de ES-DE")
+    p.add_argument("--salida", required=not os.environ.get("ARCADE_HOF_PROTECTOR"),
+                   default=os.environ.get("ARCADE_HOF_PROTECTOR"), help="carpeta de imágenes del slideshow")
+    p.add_argument("--carpeta", default=os.environ.get("ARCADE_HOF_PARTIDAS"), help="carpeta de partidas a escanear")
+    p.add_argument("--hiscore-dat", help="hiscore.dat de FBNeo, para comprobar regiones de memoria")
+    p.add_argument("--gamelist", default=os.environ.get("ARCADE_HOF_GAMELIST"),
+                   help="gamelist.xml de ES-DE para los nombres de los juegos (solo lectura)")
+    p.add_argument("--dat", action="append", help="DAT de FBNeo o carpeta con DAT")
+    p.add_argument("--mostrar-sin-iniciales", action="store_true",
+                   default=os.environ.get("ARCADE_HOF_MOSTRAR_SIN_INICIALES", "") in ("1", "si", "true"))
+    p.add_argument("--tamano", type=parse_size, default=(1920, 1080), help="tamaño de las imágenes (1920x1080)")
+    p.set_defaults(func=cmd_protector)
     p = sub.add_parser("aceptar", help="aceptar un estado pendiente como nueva línea base")
     p.add_argument("nombre")
     p.set_defaults(func=cmd_accept)

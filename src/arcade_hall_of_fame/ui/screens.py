@@ -51,8 +51,8 @@ class Screen:
     empty_message: str = ""
     page: str = ""
     highlight_first: bool = True
-    status: str = ""
-    no_initials: bool = False  # juego que no guarda iniciales  # línea de estado: juegos registrados y último escaneo
+    status: str = ""  # línea de estado: juegos registrados y último escaneo
+    no_initials: bool = False  # juego que no guarda iniciales
 
 
 def rank_color(position: int) -> str:
@@ -139,7 +139,8 @@ def game_screen(db: Database, game: str, players: Players, names: GameNames) -> 
         notes.append(("LA FABRICA NO SUMA AL RANKING", DIM))
     columns = (Column("POS", 4), Column("PUNTOS", 10, "right"), Column("JUGADOR", 13), Column("", 10))
     first_counts = bool(entries) and not entries[0]["factory"] and not no_initials
-    return Screen(f"juego:{game}", names.name(game), "TABLA DEL JUEGO", columns, rows, notes, "TABLA VACIA",
+    subtitle = names.detail(game) or "TABLA DEL JUEGO"  # año y fabricante, del DAT de FBNeo
+    return Screen(f"juego:{game}", names.name(game), subtitle, columns, rows, notes, "TABLA VACIA",
                   highlight_first=first_counts, no_initials=no_initials)
 
 

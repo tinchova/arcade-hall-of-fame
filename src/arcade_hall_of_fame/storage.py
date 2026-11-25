@@ -135,6 +135,11 @@ class Database:
             (game, current or 0),
         ).fetchone()
 
+    def last_change(self) -> Optional[str]:
+        """Hora UTC de la última tabla nueva registrada, o None."""
+        row = self.conn.execute("SELECT MAX(detected_utc) FROM observations").fetchone()
+        return row[0] if row else None
+
     def last_scan(self) -> Optional[sqlite3.Row]:
         return self.conn.execute("SELECT * FROM scans ORDER BY id DESC LIMIT 1").fetchone()
 

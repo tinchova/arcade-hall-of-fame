@@ -72,7 +72,16 @@ Objetivo: Python 3.11 o posterior. El núcleo también funciona con el Python 3.
 
    Escanea al abrir y cada 60 segundos (`--escaneo`) y cambia de pantalla cada 8 (`--segundos`). Otras opciones: `--ventana 1280x720` para no usar pantalla completa, `--sin-animacion`, `--capturas <carpeta>` para guardar un PNG de cada pantalla sin abrir ventana y `--prueba` para comprobar Tk y generar las pantallas sin mostrarlas.
 
-6. Pruebas automáticas, con datos sintéticos:
+6. Imágenes para el protector de pantalla de ES-DE (slideshow con imágenes propias):
+
+   ```sh
+   python -m arcade_hall_of_fame protector --salida "<carpeta de imágenes>" \
+       --carpeta "$HOME/Documents/RetroArch/saves/FinalBurn Neo/fbneo"
+   ```
+
+   Si los datos no cambiaron desde la vez anterior, no reescribe nada. En macOS, `contrib/macos/instalar_protector.sh` lo deja funcionando con un LaunchAgent que se dispara cuando cambia la carpeta de partidas; ver [INTEGRACION_ESDE.md](docs/INTEGRACION_ESDE.md).
+
+7. Pruebas automáticas, con datos sintéticos:
 
    ```sh
    python -m unittest
