@@ -19,6 +19,19 @@ El paso siguiente es contrastar las definiciones publicadas con los archivos dis
 
 Las definiciones documentan versiones de MAME; su coincidencia con FBNeo debe comprobarse por juego y perfil. Mantener validación con archivos reales, pero reservar nuevas capturas para discrepancias concretas o una prueba final del flujo completo.
 
-Python y SQLite siguen siendo la base propuesta. Ejecutar hi2txt como herramienta auxiliar o usar su documentación para un adaptador pequeño son alternativas a evaluar; no introducir todavía un intérprete XML general ni una dependencia Java/C++ obligatoria. Si se reutilizan código o definiciones, revisar sus licencias antes de copiarlos o fijar la licencia del proyecto. En esta investigación solo se incorporan enlaces y conclusiones, no archivos de terceros.
+Python y SQLite siguen siendo la base propuesta. Ejecutar hi2txt como herramienta auxiliar o usar su documentación para un adaptador pequeño eran las alternativas evaluadas; ver la decisión al final de este documento. Si se reutilizan código o definiciones, revisar sus licencias antes de copiarlos o fijar la licencia del proyecto. En esta investigación solo se incorporan enlaces y conclusiones, no archivos de terceros.
 
 Se mantiene un solo adaptador inicial: no implementar Galaga y Bubble Bobble simultáneamente. El cambio de prioridad es investigar reutilización antes de continuar con la deducción manual.
+
+## Decisión (2026-11-25)
+
+El usuario tiene unos 500 juegos de FBNeo, así que no se escribirá un adaptador por juego. El proyecto usa las definiciones de hi2txt-xml para todos los juegos, con estas condiciones:
+
+- **Intérprete propio.** Escrito en Python a partir de la [referencia pública del formato](https://greatstoneex.github.io/hi2txt-doc/doc/xml.html), sin copiar código de hi2txt ni de OpenHi2txt, sin Java ni C++ y con la biblioteca estándar (`xml.etree.ElementTree`).
+- **Definiciones fuera del repositorio.** Cada usuario las descarga con `python -m arcade_hall_of_fame.hi2txt.fetch`, fijado a la revisión `990fca26edb8cd9e37ab0b569d5d59b06e31f0e0` y verificado con SHA-256, en `local/` (excluido de Git). Así no se redistribuye material GPL v2 y la licencia del código propio sigue abierta.
+- **Crédito visible.** El README cita a GreatStoneEx, hi2txt-xml y su licencia.
+- **Sin datos inventados.** Una operación no implementada se informa al cargar la definición; un byte que no se puede interpretar, al leer.
+
+El DTD local de hi2txt-xml (`hi2txt.dtd`) se lee en tiempo de ejecución solo para resolver entidades como `&black-heart;` en los charsets. No se copia.
+
+La cobertura medida está en [VALIDACION.md](VALIDACION.md#cobertura-del-intérprete). La descarga incluye también `db_defaults`, las tablas de fábrica de cada juego, útiles para no dar crédito a entradas precargadas.

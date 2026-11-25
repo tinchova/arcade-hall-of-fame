@@ -6,7 +6,7 @@ Estado: propuesta inicial, 2026-11-25. Las decisiones indicadas como provisional
 
 Crear un salón de la fama local para una máquina arcade. La clasificación general cuenta primeros puestos actuales por juego; las puntuaciones de juegos distintos no se suman. Se conserva un historial de cambios observados.
 
-La primera entrega funcional admitirá un único set confirmado de Galaga y una única fuente de FinalBurn Neo. No se implementarán otros adaptadores hasta superar la validación real. El diseño permitirá incorporar MAME después de investigar y validar sus propios archivos.
+La primera entrega funcional usará FinalBurn Neo como fuente, con Galaga como prueba de concepto. Los juegos se leen con un intérprete genérico de las definiciones de hi2txt-xml, no con un adaptador por juego; cada juego se considera validado solo cuando una muestra real coincide con su pantalla. El diseño permitirá incorporar MAME después de investigar y validar sus propios archivos.
 
 ## Requisitos funcionales verificables
 
@@ -14,7 +14,7 @@ La primera entrega funcional admitirá un único set confirmado de Galaga y una 
 | --- | --- | --- |
 | RF-01 | Configurar explícitamente archivo, emulador, set y perfil de competición | No se adivinan rutas ni formatos por extensión; una fuente no soportada produce un diagnóstico |
 | RF-02 | Leer originales exclusivamente en modo binario de lectura | No se crean, modifican, renombran, bloquean ni eliminan archivos del emulador; pruebas comprueban bytes, hash y mtime |
-| RF-03 | Interpretar Galaga con un adaptador específico | Todas las filas disponibles coinciden con las capturas reales de referencia, incluidas puntuaciones e iniciales |
+| RF-03 | Interpretar cada juego con su definición de hi2txt-xml (Galaga como prueba de concepto) | Todas las filas disponibles coinciden con las capturas reales de referencia, incluidas puntuaciones e iniciales; una definición no soportada produce un diagnóstico |
 | RF-04 | Generar clasificación por juego | Muestra posiciones, iniciales, puntuaciones y estado de actualización; datos desconocidos se señalan |
 | RF-05 | Generar clasificación general | Cuenta juegos con primer puesto vigente y propietario identificado; una persona cuenta como máximo una vez por juego |
 | RF-06 | Conservar historial en SQLite | Una importación válida guarda observación, tabla y cambios de récord de forma atómica |
@@ -40,7 +40,7 @@ La primera entrega funcional admitirá un único set confirmado de Galaga y una 
 ## Restricciones técnicas
 
 - Python y SQLite mediante `sqlite3`; núcleo con biblioteca estándar, sin ORM ni servidor de base de datos.
-- Adaptador puro que recibe bytes y devuelve resultados o un error explícito. La longitud correcta por sí sola no acredita validez.
+- Intérprete puro que recibe bytes y una definición y devuelve resultados o un error explícito. La longitud correcta por sí sola no acredita validez. Las definiciones de terceros no se incluyen en el repositorio.
 - Procesamiento local, sin cuenta ni red obligatoria. Sin Docker, servicios distribuidos, telemetría ni descarga de ROMs.
 - macOS Catalina Intel y Linux como plataformas objetivo; compatibilidad anunciada únicamente después de pruebas en ambas.
 - Python 3.11 como base provisional. La versión exacta y su distribución deben verificarse en la iMac antes de fijar instalación y CI.

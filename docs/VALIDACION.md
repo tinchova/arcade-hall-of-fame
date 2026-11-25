@@ -1,6 +1,53 @@
 # Validación de Galaga
 
-Se ha inspeccionado una primera copia real de `galaga.hi`: tiene 51 bytes y la lectura no alteró su hash ni su fecha de modificación. La fotografía aportada muestra cinco entradas de 20.000 puntos y permite una primera correspondencia provisional, registrada en [la investigación](INVESTIGACION_GALAGA.md#primera-comparación-entre-archivo-y-pantalla). Sigue pendiente obtener estados distintos. El adaptador todavía no está validado ni implementado. Las pruebas automatizadas se implementarán junto con el comportamiento que deban verificar.
+Estado (2026-11-25): el intérprete de definiciones hi2txt reproduce las tablas de las dos muestras reales disponibles, contrastadas con sus fotos. Es una prueba de concepto: falta un segundo estado real con iniciales que no sean las de fábrica y la ejecución en Catalina y Linux.
+
+## Resultados con las muestras reales
+
+| Juego | Archivo | Filas obtenidas (puntuación, iniciales) | Coincide con la foto |
+| --- | --- | --- | --- |
+| Galaga (`galaga`) | 51 bytes | 20000 N.N · 20000 A.A · 20000 M.M · 20000 C.C · 20000 O.O; máximo 20000 | Sí |
+| Bubble Bobble (`bublbobl`) | 86 bytes | 40080 ABC · 30000 I.F · 30000 MTJ · 30000 NSO · 30000 KIM; etapas 5, 32, 28, 24, 20 | Sí |
+
+La lectura no cambió el contenido ni la fecha de modificación de ninguna de las dos copias. Las regiones del `hiscore.dat` de FBNeo para `galaga` coinciden con las que declara la definición.
+
+**Hallazgo:** la tabla de Galaga de la foto es idéntica a la tabla de fábrica que publica hi2txt-xml (`src/main/db_defaults/galaga.xml`). Son entradas precargadas por el juego, no partidas de personas, y según la regla 5 de [REQUISITOS.md](REQUISITOS.md) no deben otorgar crédito. Por eso la muestra confirma la decodificación de puntuaciones e iniciales, pero no la de una tabla modificada por jugadores.
+
+## Comprobación local opcional
+
+`tests/test_muestras_reales.py` lee copias privadas indicadas por variables de entorno y se saltea si faltan; saltearla no acredita compatibilidad. Ejemplo (bash):
+
+```sh
+export ARCADE_HOF_HI2TXT_DB=local/hi2txt-xml/<revisión>/src/main/db
+export ARCADE_HOF_GALAGA_SAMPLE=/ruta/privada/galaga.hi
+export ARCADE_HOF_GALAGA_EXPECTED="20000 N.N;20000 A.A;20000 M.M;20000 C.C;20000 O.O"
+export ARCADE_HOF_BUBLBOBL_SAMPLE=/ruta/privada/bublbobl.hi
+export ARCADE_HOF_BUBLBOBL_EXPECTED="40080 ABC;30000 I.F;30000 MTJ;30000 NSO;30000 KIM"
+python -m unittest tests.test_muestras_reales -v
+```
+
+La prueba también comprueba que el hash y la fecha de modificación de la muestra no cambian.
+
+## Cobertura del intérprete
+
+Medida con `python -m arcade_hall_of_fame.hi2txt.conformance local/hi2txt-xml/<revisión> --hiscore-dat <hiscore.dat de FBNeo>`, sobre hi2txt-xml `990fca26edb8cd9e37ab0b569d5d59b06e31f0e0`. Para comparar con salidas esperadas, descargar con `fetch --pruebas`.
+
+| Medida | Resultado |
+| --- | --- |
+| Juegos con definición en hi2txt-xml | 3102 (780 definiciones base; el resto son alias `sameas`) |
+| Cargan sin operaciones pendientes | 2939 juegos (94,7 %), 743 definiciones base |
+| Con operaciones pendientes | 146 juegos (34 base): `CS_*` 11, `base=256` 9, `formatter` 8, `shift`, columnas en `divide` y casos sueltos |
+| Con errores propios de la definición | 17 juegos (3 base: sin `<structure>` o bucle sin `count`) |
+| Casos de prueba de hi2txt-xml (`src/test`, 803) | 606 salidas idénticas y 15 con la tabla principal idéntica; 8 difieren, 11 dan error, 42 sin soporte, 117 son `nvram` de varios archivos (no aplica a FBNeo) y 4 salidas esperadas ilegibles |
+| `hiscore.dat` de FBNeo instalado (5856 juegos) | 2588 tienen definición; 2467 están soportadas; 2447 son además compatibles en tamaño y regiones de memoria con lo que guarda FBNeo (16 difieren en tamaño, 4 en regiones) |
+
+De los 644 casos de prueba aplicables y soportados, 621 (96 %) dan la tabla principal idéntica a la del motor original. Varias diferencias restantes vienen de salidas esperadas generadas con versiones antiguas del motor o de las definiciones (por ejemplo, hexadecimal en minúsculas). Que una definición cargue no garantiza que el juego funcione en FBNeo: hace falta que las regiones de su `hiscore.dat` coincidan y, en lo posible, una muestra real.
+
+Las definiciones de hi2txt-xml se probaron con MAME. Para cada juego de FBNeo, el intérprete elige la estructura por tamaño de archivo y, si se le pasan, por las regiones de `hiscore.dat`. Si no coinciden, informa un error en vez de leer.
+
+## Notas previas
+
+La primera inspección de `galaga.hi` (51 bytes) y la correspondencia provisional están en [la investigación](INVESTIGACION_GALAGA.md#primera-comparación-entre-archivo-y-pantalla). Las secciones siguientes describen el protocolo original; siguen siendo útiles para obtener nuevas muestras.
 
 ## Entorno comunicado
 
@@ -61,13 +108,15 @@ Si fuera necesario deducir campos no documentados, obtener estados que permitan 
 
 Por cada campo documentar hipótesis, capturas que la apoyan y resultado esperado. Contrastarlo con la pantalla, no con un encoder construido a partir de la misma hipótesis. Cualquier divergencia deja la compatibilidad pendiente.
 
-## Pruebas automatizadas previstas
+## Pruebas automatizadas
+
+Implementadas: lector, intérprete (definiciones sintéticas propias en `tests/synthetic.py`), formatos, `hiscore.dat`, descarga segura y comprobación opcional con muestras reales. La tabla siguiente incluye además lo previsto para las etapas siguientes.
 
 Usar `unittest` y directorios temporales. Los tests públicos no requieren emulador ni material privado.
 
 | Área | Casos relevantes |
 | --- | --- |
-| Adaptador | Vectores sintéticos derivados de la especificación validada, posiciones, ceros, espacios y caracteres conocidos; tamaños incorrectos, truncamiento, bytes inválidos y set no admitido |
+| Intérprete | Definiciones y bytes sintéticos: BCD, base 16, base 40, índices, punteros de rango, formatos, charsets, entidades, `sameas`; tamaños incorrectos, BCD inválido, caracteres no imprimibles y operaciones no soportadas |
 | Lector | Origen de solo lectura, ausencia, permisos, modificaciones entre lecturas, tamaño excesivo y exclusión de salidas dentro del árbol de guardados |
 | Integridad de origen | Comparar contenido, hash y mtime antes/después de éxito, error y reimportación; no exigir atime inmutable, pues leer puede actualizarlo |
 | SQLite | Reimportar sin duplicar, reiniciar y reimportar, fallo a mitad de transacción sin datos parciales, fuentes separadas y persistencia de atribución |

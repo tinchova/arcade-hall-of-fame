@@ -42,4 +42,6 @@ La longitud coincidente y las cinco filas correctas respaldan esta interpretaci�
 
 El siguiente contraste útil es otra tabla con puntuación e iniciales diferentes, acompañada del `.hi` obtenido al cerrar contenido. Conservar ambas copias por separado. Para comprobar el lector no es necesario superar 40.080: una entrada por encima de 30.000 que permita registrar iniciales distintas también aportaría evidencia. Una superación del máximo sí será necesaria para validar posteriormente el evento de récord batido de extremo a extremo.
 
-Esta investigación mantiene separado el formato de Bubble Bobble del de Galaga: la coincidencia de extensión `.hi` no implica igual codificación ni distribución. Sigue vigente el objetivo de implementar y validar un único adaptador inicial; Galaga queda pendiente y Bubble Bobble es el candidato alternativo investigado.
+Esta investigación mantiene separado el formato de Bubble Bobble del de Galaga: la coincidencia de extensión `.hi` no implica igual codificación ni distribución.
+
+Actualización: el intérprete de definiciones hi2txt reproduce estas cinco filas con la definición publicada `bublbobl.xml`, sin código específico para el juego. Ver [VALIDACION.md](VALIDACION.md#resultados-con-las-muestras-reales).

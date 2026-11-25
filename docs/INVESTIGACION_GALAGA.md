@@ -1,6 +1,8 @@
 # Investigación inicial: FinalBurn Neo y Galaga
 
-Consulta: 2026-11-25. Investigación de código público y primera inspección de una copia real de `galaga.hi` aportada por el usuario. Esto no constituye validación del adaptador.
+Consulta: 2026-11-25. Investigación de código público y primera inspección de una copia real de `galaga.hi` aportada por el usuario.
+
+> Actualización: Galaga es la prueba de concepto del intérprete de definiciones hi2txt, que reproduce las cinco filas de la foto. Las dudas de este documento sobre codificación de puntuaciones y caracteres quedan resueltas por la definición publicada (`galaga.xml` de hi2txt-xml). La tabla observada es la tabla de fábrica del juego. Resultados en [VALIDACION.md](VALIDACION.md#resultados-con-las-muestras-reales).
 
 La primera muestra tiene **51 bytes**, coincidentes con la longitud esperada para la definición consultada. La lectura mantuvo iguales el hash y la fecha de modificación del archivo. El usuario aportó después una fotografía de la tabla visible, que permite una primera comparación. Faltan capturas con cambios controlados para confirmar el formato. El binario, la fotografía, su hash y sus rutas privadas no se incorporan al repositorio.
 
