@@ -60,7 +60,10 @@ class Structure:
     items: tuple[Elt | Loop, ...]
 
     def matches_file(self, file_name: str) -> bool:
-        return file_name == self.file or (self.file.startswith(".") and file_name.endswith(self.file))
+        if file_name == self.file:
+            return True
+        extension = self.file[1:] if self.file.startswith(".") else self.file
+        return "." in file_name and file_name.rsplit(".", 1)[1] == extension
 
 
 @dataclass(frozen=True)

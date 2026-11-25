@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Tuple
 
 from .definition import parse_region_line
 
-Region = tuple[int, int, int, int]
+Region = Tuple[int, int, int, int]  # typing: también corre en Python 3.8
 _NAME_LINE = re.compile(r"^([A-Za-z0-9_]+):$")
 
 
