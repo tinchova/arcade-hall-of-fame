@@ -4,8 +4,8 @@ Formato::
 
     {
       "jugadores": {
-        "Ana": ["NIC", "N.C"],
-        "Ana": ["ANA"]
+        "Ana": ["ANA", "A.N"],
+        "Beto": ["BTO"]
       }
     }
 
