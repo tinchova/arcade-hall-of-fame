@@ -1,0 +1,162 @@
+"""Escaneo de la carpeta de partidas de FBNeo y registro en SQLite.
+
+Los archivos se abren solo en modo ``rb``. Cada ``.hi`` se lee dos veces y se
+comprueban tamaño y fecha de modificación antes y después, para descartar
+lecturas a medio escribir.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import os
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Callable, Dict, List, Optional, Tuple
+
+from . import __version__
+from .hi2txt import MAX_FILE_SIZE, DefinitionLibrary, decode
+from .hi2txt.defaults import FactoryTables
+from .hi2txt.formats import render, to_number
+from .models import FormatError, HighScoreError, SourceReadError
+from .reader import read_source
+from .storage import Database
+
+LOWER_TOP_NOTE = "el máximo bajó: posible reinicio o restauración; no reemplaza la tabla vigente"
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+@dataclass
+class ScanReport:
+    files: int = 0
+    new_observations: List[str] = field(default_factory=list)
+    unchanged: List[str] = field(default_factory=list)
+    pending: List[str] = field(default_factory=list)
+    records: List[Tuple[str, str, str, List[str]]] = field(default_factory=list)
+    errors: List[Tuple[str, str]] = field(default_factory=list)
+
+
+def read_stable(path: Path) -> bytes:
+    """Lee el archivo dos veces; falla si cambia mientras se lee."""
+    before = os.stat(path)
+    first = read_source(path, MAX_FILE_SIZE)
+    second = read_source(path, MAX_FILE_SIZE)
+    after = os.stat(path)
+    if first != second or (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+        raise SourceReadError(f"{path.name!r} cambió durante la lectura; se reintentará en el próximo escaneo")
+    return first
+
+
+def _number(value) -> Optional[float]:
+    try:
+        return float(to_number(value))
+    except FormatError:
+        return None
+
+
+def _holders(rows: List[Dict], top: Optional[float]) -> List[str]:
+    """Iniciales atribuibles que tienen el máximo (sin fábrica, sin vacías)."""
+    if top is None:
+        return []
+    return sorted({
+        r["initials"].strip() for r in rows
+        if r["score_num"] == top and r["initials"] and r["initials"].strip() and not r["factory"]
+    })
+
+
+def normalize_rows(result, factory) -> List[Dict]:
+    rows = []
+    for row in result.score_rows():
+        score_text = render(row.score).strip()
+        initials = None if row.initials is None else render(row.initials)
+        rows.append({
+            "position": row.position,
+            "score_text": score_text,
+            "score_num": _number(row.score),
+            "initials": initials,
+            "factory": (score_text, initials or "") in factory,
+        })
+    return rows
+
+
+def scan(
+    folder: Path,
+    db: Database,
+    library: DefinitionLibrary,
+    factory: FactoryTables,
+    definitions_revision: str,
+    regions: Optional[Dict[str, tuple]] = None,
+    now: Callable[[], str] = utc_now,
+) -> ScanReport:
+    folder = Path(folder)
+    if not folder.is_dir():
+        raise SourceReadError(f"no existe la carpeta de partidas {folder.name!r}")
+    try:
+        Path(db.path).resolve().relative_to(folder.resolve())
+    except ValueError:
+        pass
+    else:
+        raise SourceReadError("la base de datos no puede estar dentro de la carpeta de partidas")
+
+    report = ScanReport()
+    started = now()
+    for path in sorted(p for p in folder.iterdir() if p.is_file() and p.suffix.lower() == ".hi"):
+        report.files += 1
+        game = path.stem
+        stamp = now()
+        try:
+            data = read_stable(path)
+            file_hash = hashlib.sha256(data).hexdigest()
+            source = db.source(game)
+            if source is not None and source["last_hash"] == file_hash and source["last_error"] is None:
+                db.touch_source(game, path.name, stamp, None)
+                report.unchanged.append(game)
+                continue
+            definition = library.load(game)
+            game_regions = (regions or {}).get(game)
+            if regions is not None and game_regions is None:
+                raise FormatError(f"{game}: no figura en hiscore.dat")
+            result = decode(definition, data, file_name=path.name, regions=game_regions)
+            rows = normalize_rows(result, factory.rows(game))
+            if not rows:
+                raise FormatError(f"{game}: la tabla está vacía")
+        except HighScoreError as exc:
+            db.touch_source(game, path.name, stamp, str(exc))
+            report.errors.append((game, str(exc)))
+            continue
+        _record(db, game, path.name, file_hash, rows, stamp, definitions_revision, report)
+    db.add_scan(started, now(), report.files, len(report.new_observations), len(report.unchanged), len(report.errors))
+    return report
+
+
+def _record(db: Database, game, file_name, file_hash, rows, stamp, revision, report: ScanReport) -> None:
+    numbers = [r["score_num"] for r in rows if r["score_num"] is not None]
+    top_num = max(numbers) if numbers else None
+    top_text = next((r["score_text"] for r in rows if r["score_num"] == top_num), None) if numbers else None
+
+    source = db.source(game)
+    current = db.observation(source["current_observation_id"]) if source and source["current_observation_id"] else None
+    status, note, make_current, event = "aceptada", None, True, None
+    if current is None:
+        note = "línea base"
+    elif top_num is not None and current["top_score_num"] is not None:
+        if top_num < current["top_score_num"]:
+            status, note, make_current = "pendiente", LOWER_TOP_NOTE, False
+        elif top_num > current["top_score_num"]:
+            previous_rows = [dict(r) for r in db.entries(current["id"])]
+            event = {
+                "previous_top": current["top_score_text"],
+                "new_top": top_text,
+                "previous_holders": _holders(previous_rows, current["top_score_num"]),
+                "new_holders": _holders(rows, top_num),
+            }
+    db.add_observation(game, file_name, file_hash, stamp, rows, top_text, top_num, status, note,
+                       make_current, event, __version__, revision)
+    report.new_observations.append(game)
+    if status == "pendiente":
+        report.pending.append(game)
+    if event is not None:
+        report.records.append((game, event["previous_top"], event["new_top"], event["new_holders"]))
