@@ -72,7 +72,12 @@ Las etapas 3–6 no convierten un decodificador sin evidencia en uno validado. L
 | 0. Especificación | Hecha |
 | 1. Evidencia real | Parcial: muestras de Galaga y Bubble Bobble con foto. Falta Python/Tk en la iMac y fecha/revisión de las compilaciones |
 | 2. Lector | Prueba de concepto hecha en Windows con Python 3.14 y 3.13; falta correr las pruebas en Python 3.11, Catalina y Linux. Cobertura medida en [VALIDACION.md](VALIDACION.md#cobertura-del-intérprete) |
-| 3–6 | Sin empezar. No avanzar con SQLite ni interfaz hasta que se indique |
+| 3. Núcleo y SQLite | Hecho, sin configuración TOML ni correspondencias de iniciales: `scanner.py`, `storage.py`, `rankings.py` y `cli.py`, con pruebas sintéticas. Probado en la iMac con las partidas reales, en modo lectura y con la base en `/tmp` |
+| 4–6 | Sin empezar. Sin interfaz gráfica hasta que se indique |
+
+Decisiones del 2026-11-25: los juegos que no guardan iniciales (como Pac-Man) aparecen en su tabla con el máximo, pero no cuentan para el ranking; las entradas de fábrica no cuentan para nadie; por ahora no se escriben definiciones nuevas para los juegos que no tienen. Diferencia pendiente con la regla 5 de REQUISITOS.md: el ranking cuenta como identidad las iniciales que no son de fábrica, incluidas las ya presentes en el primer escaneo, porque todavía no hay correspondencias configurables entre iniciales y personas.
+
+Esquema implementado (`PRAGMA user_version = 1`): `sources` (un juego por `.hi`, con hash, última lectura, último error y tabla vigente), `observations` (cada contenido distinto, `aceptada` o `pendiente`), `entries` (filas con puntuación, iniciales y marca de fábrica), `record_events` (máximo anterior y nuevo, con sus titulares) y `scans`. Un archivo sin cambios solo actualiza la hora de última lectura. Un máximo menor que el vigente queda `pendiente` hasta `aceptar`. Cada archivo se lee dos veces y se comparan tamaño y fecha de modificación; si cambió, se reintenta en el siguiente escaneo.
 
 Pendientes del intérprete, por frecuencia en las definiciones: charsets predefinidos `CS_*`, `base="256"`, `format@formatter` (formato estilo Java), operación `shift`, columnas dentro de `divide`, y archivos `nvram` de varios ficheros (no afectan a los `.hi` de FBNeo).
 

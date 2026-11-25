@@ -13,6 +13,10 @@ La lectura no cambió el contenido ni la fecha de modificación de ninguna de la
 
 **Hallazgo:** la tabla de Galaga de la foto es idéntica a la tabla de fábrica que publica hi2txt-xml (`src/main/db_defaults/galaga.xml`). Son entradas precargadas por el juego, no partidas de personas, y según la regla 5 de [REQUISITOS.md](REQUISITOS.md) no deben otorgar crédito. Por eso la muestra confirma la decodificación de puntuaciones e iniciales, pero no la de una tabla modificada por jugadores.
 
+## Escaneo con las partidas reales de la iMac
+
+Prueba del 2026-11-25, con copia temporal en `/tmp` (base incluida), borrada al terminar, y la carpeta de partidas leída en modo lectura; el listado de la carpeta fue idéntico antes y después. Python 3.8.2, SQLite 3.28.0. Pasaron todas las pruebas. El primer escaneo registró 3 tablas (galaga, bublbobl, pacman); el segundo, ninguna nueva. Ranking: `ABC` con 1 primer puesto (bublbobl). Galaga no cuenta porque su máximo es de fábrica, y Pac-Man porque no guarda iniciales. Todavía no hay récords batidos: el primer escaneo es la línea base.
+
 ## Comprobación local opcional
 
 `tests/test_muestras_reales.py` lee copias privadas indicadas por variables de entorno y se saltea si faltan; saltearla no acredita compatibilidad. Ejemplo (bash):

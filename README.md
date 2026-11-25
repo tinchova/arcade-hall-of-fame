@@ -2,7 +2,7 @@
 
 Proyecto para clasificar jugadores de máquinas arcade por la cantidad de juegos en los que poseen el récord número uno. Python, SQLite y funcionamiento local, independiente del frontend de emulación.
 
-**Estado: prueba de concepto del lector (experimental).** Existe un intérprete propio, en Python y sin dependencias, del formato de definiciones de [hi2txt](https://greatstoneex.github.io/hi2txt-doc/doc/index.html). Con las definiciones publicadas por hi2txt-xml lee los `.hi` de cada juego y devuelve sus tablas (posición, puntuación, iniciales). Galaga es la prueba de concepto y Bubble Bobble el segundo caso: ambos reproducen las tablas de las fotos de la iMac. Todavía no hay base de datos, clasificación general, historial ni interfaz. La compatibilidad con MAME y las integraciones con Attract-Mode y ES-DE son posteriores.
+**Estado: prueba de concepto del lector (experimental).** Existe un intérprete propio, en Python y sin dependencias, del formato de definiciones de [hi2txt](https://greatstoneex.github.io/hi2txt-doc/doc/index.html). Con las definiciones publicadas por hi2txt-xml lee los `.hi` de cada juego y devuelve sus tablas (posición, puntuación, iniciales). Galaga es la prueba de concepto y Bubble Bobble el segundo caso: ambos reproducen las tablas de las fotos de la iMac. Un escaneo guarda en SQLite el historial de cada tabla y detecta récords batidos. Un comando de línea muestra el ranking de jugadores, la tabla de un juego y los últimos récords. Todavía no hay interfaz gráfica. La compatibilidad con MAME y las integraciones con Attract-Mode y ES-DE son posteriores.
 
 ## Documentación
 
@@ -23,7 +23,7 @@ El repositorio no incluye ROMs, BIOS, archivos del emulador, definiciones de ter
 
 ## Uso actual
 
-Requiere Python 3.11 o posterior; no tiene dependencias externas. Todos los comandos se ejecutan desde la raíz del repositorio.
+Objetivo: Python 3.11; también funciona con el Python 3.8 que trae macOS Catalina. No tiene dependencias externas. Todos los comandos se ejecutan desde la raíz del repositorio.
 
 1. Descargar las definiciones de hi2txt-xml (revisión fijada y verificada con SHA-256) a `local/`, carpeta excluida de Git:
 
@@ -39,13 +39,27 @@ Requiere Python 3.11 o posterior; no tiene dependencias externas. Todos los coma
    PYTHONPATH=src python -m arcade_hall_of_fame.hi2txt galaga ruta/a/una/copia/galaga.hi
    ```
 
-3. Pruebas automáticas, con datos sintéticos:
+3. Escanear la carpeta de partidas de FBNeo y consultar (bash; la carpeta de partidas se lee en modo `rb`):
+
+   ```sh
+   export PYTHONPATH=src
+   python -m arcade_hall_of_fame escanear "$HOME/Documents/RetroArch/saves/FinalBurn Neo/fbneo" \
+       --hiscore-dat "$HOME/Documents/RetroArch/system/fbneo/hiscore.dat"
+   python -m arcade_hall_of_fame ranking      # jugadores por cantidad de primeros puestos
+   python -m arcade_hall_of_fame juego galaga # tabla vigente de un juego
+   python -m arcade_hall_of_fame records      # últimos récords batidos
+   python -m arcade_hall_of_fame aceptar <juego>  # aceptar un estado pendiente (máximo que bajó)
+   ```
+
+   La base SQLite va en la carpeta de datos del usuario: `~/Library/Application Support/arcade-hall-of-fame/` en macOS, `~/.local/share/arcade-hall-of-fame/` en Linux y `%LOCALAPPDATA%\arcade-hall-of-fame\` en Windows. Se puede cambiar con `--base` o con `ARCADE_HOF_BASE`; la carpeta de definiciones, con `--definiciones` o `ARCADE_HOF_DEFINICIONES`. Repetir el escaneo sobre archivos sin cambios no agrega nada.
+
+4. Pruebas automáticas, con datos sintéticos:
 
    ```sh
    python -m unittest
    ```
 
-Las iniciales son las guardadas por el juego; el programa no las atribuye a jugadores. Si una definición usa una operación que el intérprete todavía no implementa, el error lo dice y no se muestran datos. La comprobación opcional con muestras reales y la medición de cobertura se describen en [VALIDACION.md](docs/VALIDACION.md).
+Las iniciales son las guardadas por el juego, y el ranking las usa tal cual: todavía no hay correspondencias entre iniciales y personas. No dan crédito las entradas de fábrica (según las tablas `db_defaults` de hi2txt-xml) ni los juegos que no guardan iniciales, como Pac-Man; esos juegos sí aparecen en su tabla. Si una definición usa una operación que el intérprete todavía no implementa, el error lo dice y no se muestran datos. La comprobación opcional con muestras reales y la medición de cobertura se describen en [VALIDACION.md](docs/VALIDACION.md).
 
 ## Créditos
 
