@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "arcade-hall-of-fame"
+version = "0.0.1"
+description = "Salón de la fama local a partir de las tablas de puntuaciones de emuladores arcade"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
