@@ -1,0 +1,67 @@
+# Python y herramientas
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Datos y configuración locales
+/local/
+/private/
+/data/
+/captures/
+/tests/fixtures/real/
+/config.local.toml
+.env
+.env.*
+*.log
+*.sqlite
+*.sqlite3
+*.db
+*.sqlite-*
+*.sqlite3-*
+*.db-*
+
+# Archivos originales de emuladores: nunca versionar
+roms/
+bios/
+saves/
+nvram/
+hiscore.dat
+*.hi
+*.nv
+*.nvram
+*.fs
+*.srm
+*.sav
+*.state
+*.state.*
+*.zip
+*.7z
+*.rom
+*.bin
+
+# Sistema y editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Fotos, capturas y medios privados
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.heic
+*.heif
+*.webp
+*.bmp
+*.tif
+*.tiff
+*.mov
+*.mp4

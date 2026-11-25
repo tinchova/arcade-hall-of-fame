@@ -1,0 +1,96 @@
+# Arquitectura y plan de implementación
+
+Estado: diseño propuesto, sin implementación. Se prioriza demostrar la lectura de Galaga antes de construir la aplicación completa.
+
+Actualización de investigación: [hi2txt ya publica definiciones de Galaga y Bubble Bobble](TRABAJO_EXISTENTE.md). Antes de deducir más campos o solicitar nuevas partidas, contrastar esas definiciones con las muestras recibidas y evaluar reutilización. Las etapas de evidencia y adaptador parten de documentación existente; nuevas capturas solo se requieren para dudas concretas que esa comparación no resuelva.
+
+## Arquitectura mínima
+
+Un paquete Python, SQLite local y una interfaz de escritorio. Registro explícito de adaptadores mediante un diccionario; no hace falta un sistema de plugins. La fuente (emulador, versión, set, perfil) se configura separadamente del intérprete específico del juego.
+
+Flujo: configuración → lectura estable de bytes → adaptador Galaga → resultado normalizado → transacción SQLite → consultas de clasificación → CLI o interfaz.
+
+| Módulo previsto | Responsabilidad |
+| --- | --- |
+| `config.py` | Leer TOML con `tomllib`, validar rutas y seleccionar fuente/perfil |
+| `reader.py` | Abrir en `rb`, comprobar estabilidad y calcular SHA-256 |
+| `adapters/galaga.py` | Validar y decodificar exclusivamente el formato probado |
+| `models.py` | Dataclasses de fuente, fila y tabla; errores de lectura y formato |
+| `service.py` | Coordinar importación, línea base, clasificación y eventos |
+| `storage.py` | SQL explícito, transacciones, consultas y versión del esquema |
+| `cli.py` | Importación puntual, seguimiento y consultas para diagnóstico e integración |
+| `ui.py` | Tres vistas, navegación, pantalla completa y actualización con Tkinter |
+
+El adaptador no abre archivos ni conoce SQLite o Tkinter. Devuelve filas con posición original, puntuación entera, iniciales decodificadas y estado de atribución. Rechaza formatos incompatibles sin sustituir caracteres desconocidos por letras inventadas. La versión del adaptador acompaña cada observación.
+
+Para la prueba inicial habrá una instancia de la aplicación escribiendo SQLite. No introducir procesos auxiliares, colas o servidor. Las operaciones pequeñas se programan sin bloquear la interfaz durante esperas; el núcleo no depende del bucle gráfico.
+
+## Persistencia propuesta
+
+Cuatro tablas bastan inicialmente; concretar DDL y migración inicial durante la implementación:
+
+- `sources`: identidad estable de fuente, juego, set y perfil; referencia a última observación aceptada y estado operativo. Rutas privadas fuera de exportaciones públicas.
+- `observations`: fuente, hash, hora UTC de detección, versión de adaptador, estado aceptado o pendiente, referencia a la línea base y motivo del cambio.
+- `score_entries`: observación, posición, puntuación, iniciales y clave local de jugador cuando esté atribuida.
+- `record_events`: observación causante, referencia al estado previo, máximo anterior y nuevo, propietarios anteriores y nuevos. Un evento por superación, aunque haya varios propietarios empatados.
+
+La configuración local aporta las correspondencias de iniciales. Los eventos conservan la atribución observada; cambiar una correspondencia puede actualizar la presentación actual, pero no reescribe silenciosamente el historial.
+
+La tabla actual se consulta desde la última observación aceptada. La general se calcula desde las tablas actuales, sin contador mutable duplicado. Historial de observaciones y eventos se conserva al reiniciar. Usar claves foráneas y una transacción por importación; versionar esquema con `PRAGMA user_version`. No almacenar binarios originales en SQLite en esta primera versión.
+
+## Lecturas, repetición y recuperación
+
+Comparar tamaño y mtime antes y después de leer, y exigir dos lecturas idénticas separadas por un intervalo configurable. Limitar tamaño de entrada según el perfil validado. Un cambio durante lectura cancela el intento; reintentar en el siguiente ciclo, sin espera ocupada ni bloqueo del emulador. Estas comprobaciones reducen lecturas parciales; no equivalen a una instantánea atómica del escritor externo.
+
+El hash se compara con el último estado de esa fuente, persistido en SQLite. No usar una restricción global de hash único: la secuencia A → B → A debe poder detectarse como restauración. Releer consecutivamente un estado pendiente tampoco duplica avisos. Cambiar solo mtime sin cambiar bytes no crea evento.
+
+Una importación fallida revierte completamente la transacción. Al recuperar la fuente se vuelve a intentar; la interfaz muestra último éxito y error actual. Un cambio de perfil requiere una nueva línea base, no una comparación con reglas distintas.
+
+## Etapas y condiciones de salida
+
+| Etapa | Trabajo | Condición de salida |
+| --- | --- | --- |
+| 0. Especificación — esta entrega | Requisitos, investigación pública, arquitectura, protocolo y política del repositorio | Documentos revisables; incertidumbres explícitas |
+| 1. Evidencia real | Identificar instalación y obtener secuencia privada de Galaga; probar Python, SQLite y ventana Tk mínima | Persistencia reproducible; mapa de campos contrastado; entorno viable |
+| 2. Adaptador Galaga | Implementar lector y decodificador; casos sintéticos y comprobación local contra muestras reales | Todas las filas e iniciales coinciden; entradas inválidas se rechazan; originales intactos |
+| 3. Núcleo y SQLite | CLI de importación, observaciones, reglas de clasificación, eventos y recuperación | Repetición, empates, mejora propia, reinicios y transacciones cubiertos por pruebas |
+| 4. Interfaz | General, Galaga y últimos récords, teclado, pantalla completa y estilo arcade con texto y formas propias | Uso completo en iMac, sin ratón y dentro del presupuesto medido |
+| 5. Preparación pública | Instalación reproducible, CI Linux/Python 3.11, licencia, guía de contribución y revisión de archivos | Pruebas y revisión del repositorio aprobadas; resultados de Catalina y Linux documentados |
+| 6. Ampliaciones | Evaluar MAME e integraciones opcionales de Attract-Mode/ES-DE | Solo tras cerrar la prueba de Galaga; requisitos y muestras propios antes de cada adaptador |
+
+Las etapas 3–6 no convierten un decodificador sin evidencia en uno validado. No se añadirán adaptadores de otros juegos mientras la etapa 2 siga abierta. Los tests de la general podrán usar tablas normalizadas ficticias de varios juegos, sin adaptadores adicionales.
+
+## Estructura prevista cuando comience el código
+
+```text
+arcade-hall-of-fame/
+  README.md
+  CONTRIBUTING.md
+  LICENSE                    # tras concretar licencia y titular
+  docs/
+  pyproject.toml             # empaquetado mínimo; sin dependencias de ejecución
+  src/arcade_hall_of_fame/
+    adapters/galaga.py
+    config.py
+    reader.py
+    models.py
+    service.py
+    storage.py
+    cli.py
+    ui.py
+  tests/
+    fixtures/synthetic/      # creadas por el proyecto; documentar procedencia
+    test_galaga.py
+    test_reader.py
+    test_history.py
+    test_rankings.py
+  .github/workflows/tests.yml
+```
+
+Los módulos vacíos, los tests sin comportamiento y el workflow no se crean en esta etapa. La estructura actual solo contiene los documentos necesarios. La configuración real y las muestras privadas vivirán fuera del repositorio.
+
+## Dependencias y distribución
+
+Usar `argparse`, `dataclasses`, `pathlib`, `hashlib`, `sqlite3`, `tomllib`, `logging` y `unittest`. Tkinter es la primera opción para evitar un navegador o framework; en Linux puede requerir un paquete del sistema. Validar la disponibilidad y el comportamiento en Catalina antes de comprometer la elección. No añadir otra biblioteca gráfica sin evidencia de necesidad.
+
+Primero ejecución desde entorno virtual, sin aplicación empaquetada ni servicio de arranque. Los comandos públicos definitivos se documentarán cuando existan. Las integraciones futuras invocarán esos comandos con argumentos escapados y sin escribir en los guardados originales; su API concreta se investigará en esa etapa.
