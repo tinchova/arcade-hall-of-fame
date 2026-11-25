@@ -91,7 +91,7 @@ Pendientes del intérprete, por frecuencia en las definiciones: charsets predefi
 arcade-hall-of-fame/
   README.md
   CONTRIBUTING.md
-  LICENSE                    # tras concretar licencia y titular
+  LICENSE                    # MIT
   docs/
   pyproject.toml             # empaquetado mínimo; sin dependencias de ejecución
   src/arcade_hall_of_fame/

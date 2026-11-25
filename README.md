@@ -22,6 +22,41 @@ iMac Late 2013, Intel, macOS Catalina 10.15. Versiones comunicadas por el usuari
 
 El repositorio no incluye ROMs, BIOS, archivos del emulador, definiciones de terceros, bases de datos ni capturas de partidas.
 
+## Instalación en una iMac con macOS (Catalina o posterior)
+
+Requisitos: Git (en macOS viene con las herramientas de línea de comandos: `xcode-select --install`) y Python 3.13 del instalador oficial de [python.org](https://www.python.org/downloads/macos/), que incluye Tk 8.6. El Python que trae Catalina tiene un Tk 8.5 con fallas conocidas y no sirve para la pantalla. No hace falta instalar paquetes de Python.
+
+```sh
+# 1. Descargar el proyecto
+cd ~
+git clone https://github.com/tinchova/arcade-hall-of-fame.git
+cd arcade-hall-of-fame
+
+# 2. Python 3.13 de python.org, por ruta completa
+PY=/Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13
+export PYTHONPATH=src
+
+# 3. Descargar las definiciones de hi2txt-xml y los nombres de los juegos (a local/, fuera de Git)
+$PY -m arcade_hall_of_fame.hi2txt.fetch
+$PY -m arcade_hall_of_fame.fetch_names
+
+# 4. Abrir la pantalla (escanea las partidas de FBNeo de RetroArch; Esc para salir)
+$PY -m arcade_hall_of_fame pantalla \
+    --carpeta "$HOME/Documents/RetroArch/saves/FinalBurn Neo/fbneo" \
+    --hiscore-dat "$HOME/Documents/RetroArch/system/fbneo/hiscore.dat"
+```
+
+Si se usa ES-DE, agregar `--gamelist "$HOME/ES-DE/gamelists/fbneo/gamelist.xml"` para tomar los nombres de los juegos de ahí. Las rutas de RetroArch pueden variar según su configuración (ver [VALIDACION.md](docs/VALIDACION.md#localizar-los-archivos-en-la-imac)). El programa solo lee las partidas; su base de datos queda en `~/Library/Application Support/arcade-hall-of-fame/`.
+
+Para actualizar:
+
+```sh
+cd ~/arcade-hall-of-fame
+git pull
+```
+
+Si después de actualizar el README indica una revisión nueva de las definiciones o de los DAT, repetir el paso 3.
+
 ## Uso actual
 
 Objetivo: Python 3.11 o posterior. El núcleo también funciona con el Python 3.8 que trae macOS Catalina, pero la pantalla necesita Tk 8.6: en la iMac se usa el Python 3.13 de python.org (`/Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13`). No tiene dependencias externas. Todos los comandos se ejecutan desde la raíz del repositorio.
@@ -112,4 +147,6 @@ hi2txt-xml, a su vez, reconoce el trabajo de HiToText y de los mantenedores de `
 
 Ver [el estado de las etapas](docs/PLAN.md#estado-de-las-etapas). En resumen: probar en Python 3.11 sobre Catalina y Linux; confirmar con un segundo estado real cuando aparezca (iniciales distintas a las de fábrica); después, el núcleo con SQLite, la clasificación general, el historial de récords y la interfaz. Un caso sintético no acredita compatibilidad real.
 
-La licencia del código propio está pendiente de decisión. El código y los recursos de terceros conservan sus condiciones originales.
+## Licencia
+
+El código de este repositorio se publica con licencia [MIT](LICENSE) (Copyright (c) 2026 tinchova). Las definiciones de hi2txt-xml (GPL v2) y los DAT de FinalBurn Neo no forman parte del repositorio y conservan sus propias licencias.
