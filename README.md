@@ -85,6 +85,7 @@ Objetivo: Python 3.11 o posterior. El núcleo también funciona con el Python 3.
    python -m arcade_hall_of_fame juego galaga # tabla vigente de un juego
    python -m arcade_hall_of_fame records      # últimos récords batidos
    python -m arcade_hall_of_fame aceptar <juego>  # aceptar un estado pendiente (máximo que bajó)
+   python -m arcade_hall_of_fame pendientes   # juegos con un récord guardado que todavía no se puede leer
    ```
 
    La base SQLite va en la carpeta de datos del usuario: `~/Library/Application Support/arcade-hall-of-fame/` en macOS, `~/.local/share/arcade-hall-of-fame/` en Linux y `%LOCALAPPDATA%\arcade-hall-of-fame\` en Windows. Se puede cambiar con `--base` o con `ARCADE_HOF_BASE`; la carpeta de definiciones, con `--definiciones` o `ARCADE_HOF_DEFINICIONES`. Repetir el escaneo sobre archivos sin cambios no agrega nada.
@@ -114,7 +115,7 @@ Objetivo: Python 3.11 o posterior. El núcleo también funciona con el Python 3.
        --carpeta "$HOME/Documents/RetroArch/saves/FinalBurn Neo/fbneo"
    ```
 
-   Si los datos no cambiaron desde la vez anterior, no reescribe nada. En macOS, `contrib/macos/instalar_protector.sh` lo deja funcionando con un LaunchAgent que se dispara cuando cambia la carpeta de partidas; ver [INTEGRACION_ESDE.md](docs/INTEGRACION_ESDE.md).
+   Si los datos no cambiaron desde la vez anterior, no reescribe nada. Junto a las imágenes deja `hof-pendientes.txt`, con los juegos cuyo récord todavía no se puede leer. En macOS, `contrib/macos/instalar_protector.sh` lo deja funcionando con un LaunchAgent que se dispara cuando cambia la carpeta de partidas; ver [INTEGRACION_ESDE.md](docs/INTEGRACION_ESDE.md).
 
 7. Pruebas automáticas, con datos sintéticos:
 
@@ -128,7 +129,7 @@ Las iniciales son las guardadas por el juego, y el ranking las usa tal cual. Par
 {"jugadores": {"Ana": ["ANA", "A.N"]}}
 ```
 
- No dan crédito las entradas de fábrica (según las tablas `db_defaults` de hi2txt-xml) ni los juegos que no guardan iniciales, como Pac-Man. Esos juegos se guardan en la base y aparecen en `juego <nombre>`, pero la pantalla los oculta salvo con `--mostrar-sin-iniciales`. Si una definición usa una operación que el intérprete todavía no implementa, el error lo dice y no se muestran datos. La comprobación opcional con muestras reales y la medición de cobertura se describen en [VALIDACION.md](docs/VALIDACION.md).
+ No dan crédito las entradas de fábrica (según las tablas `db_defaults` de hi2txt-xml) ni los juegos que no guardan iniciales, como Pac-Man. Esos juegos se guardan en la base y aparecen en `juego <nombre>`, pero la pantalla los oculta salvo con `--mostrar-sin-iniciales`. Si un juego no se puede leer (no hay definición o usa una operación que el intérprete todavía no implementa), no se muestran datos: el escaneo lo anota y `pendientes` lo lista, para escribir su definición cuando haga falta ([cómo agregar un juego nuevo](docs/COBERTURA_FBNEO.md#agregar-un-juego-nuevo)). La comprobación opcional con muestras reales y la medición de cobertura se describen en [VALIDACION.md](docs/VALIDACION.md).
 
 ## Créditos
 

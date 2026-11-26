@@ -66,3 +66,34 @@ La iMac tiene **Python 3.8.2**, el de las herramientas de línea de comandos de 
 - `pacman.hi` da la misma tabla que en Windows.
 
 Para esto hubo que cambiar un alias de tipo, que usaba una sintaxis exclusiva de Python 3.9 o posterior. El objetivo sigue siendo Python 3.11: 3.8 ya no recibe actualizaciones de seguridad, y `pyproject.toml` declara 3.11. Que funcione con el Python del sistema sirve para diagnosticar sin instalar nada.
+
+## Récords que todavía no se pueden leer
+
+Cuando el escaneo encuentra el `.hi` de un juego que no se puede leer (sin definición, con operaciones no soportadas, de otro tamaño o con otras regiones de memoria, o sin entrada en `hiscore.dat`), ya no lo ignora: lo anota en la base con el motivo, la fecha en que apareció y la última modificación del archivo. No se inventa nada: solo se sabe que alguien jugó y que FBNeo guardó una tabla.
+
+```sh
+python -m arcade_hall_of_fame pendientes             # lista; destaca NUEVO y CAMBIÓ desde la consulta anterior
+python -m arcade_hall_of_fame pendientes --sin-marcar # igual, sin darlos por vistos
+```
+
+`NUEVO` es un juego que apareció desde la última consulta; `CAMBIÓ`, uno cuyo archivo se modificó desde entonces (probablemente otra partida). El comando `protector` deja la misma lista en `hof-pendientes.txt`, junto a los PNG, para verla sin abrir la base; solo lo reescribe si cambió. Cuando un juego pasa a leerse (por ejemplo, porque se agregó su definición), sale de la lista en el siguiente escaneo.
+
+## Agregar un juego nuevo
+
+Hace falta, del juego en cuestión:
+
+1. **Una partida con iniciales y la foto de la tabla.** Jugar hasta entrar en la tabla, poner iniciales reconocibles (por ejemplo `ABC`) y sacar una foto de la pantalla de récords completa, con todas las posiciones. La foto es la verdad contra la que se comprueba la definición: posiciones, puntuaciones e iniciales. Mejor dos partidas con resultados distintos, para distinguir qué bytes cambian.
+2. **El `.hi` que guardó FBNeo**, copiado (nunca movido ni editado) de la carpeta de partidas, por ejemplo `saves/FinalBurn Neo/fbneo/<juego>.hi`, después de salir del juego, que es cuando FBNeo lo escribe.
+3. **La entrada del juego en el `hiscore.dat` de FBNeo**, que dice qué regiones de memoria se guardaron y en qué orden: cada línea `@:maincpu,program,<dirección>,<largo>,<inicio>,<fin>` es un bloque del `.hi`, uno detrás del otro. La suma de los largos es el tamaño del archivo.
+
+Con eso se escribe la definición en el formato de hi2txt ([referencia del XML](https://greatstoneex.github.io/hi2txt-doc/doc/xml.html)): una `<structure file=".hi">` con el tamaño (`<check><size>`) y las regiones (`<check><definition>`), los elementos en orden (`<elt>` o `<loop>` para puntuaciones, iniciales y separadores) y una `<output>` con la tabla. Conviene partir de la definición de un juego del mismo fabricante y la misma época, que suele usar la misma codificación de puntuaciones (BCD o binario) y el mismo juego de caracteres, y confirmarlo byte a byte contra la foto. Se prueba con:
+
+```sh
+PYTHONPATH=src python -m arcade_hall_of_fame.hi2txt <juego> ruta/a/una/copia/<juego>.hi
+```
+
+y se agrega una prueba con el `.hi` como muestra real local (ver [VALIDACION.md](VALIDACION.md)). Las definiciones de hi2txt-xml no se versionan en este repositorio; la definición nueva queda local, junto a las descargadas, y conviene **proponerla también a [hi2txt-xml](https://github.com/GreatStoneEx/hi2txt-xml)** (un pull request con el XML nuevo, en `src/main/db/`, o un issue con el XML adjunto), que acepta contribuciones de definiciones y es GPL v2. Así le sirve a todos y vuelve en la próxima revisión fijada.
+
+### Primer candidato: Sunset Riders
+
+`ssriders` y sus versiones (`ssridersubc` incluida) tienen entrada en el `hiscore.dat` de FBNeo, así que FBNeo guarda su `.hi`, pero hi2txt-xml no tiene definición para ninguna. La entrada de FBNeo guarda dos bloques: `104400` (0x50 bytes) y `104120` (4 bytes), es decir un `.hi` de 84 bytes. Probablemente el primero sea la tabla y el segundo el máximo que se muestra en pantalla, pero eso hay que confirmarlo con la partida, la foto y el `.hi`. Un punto de partida razonable es la definición de `tmnt2` (Konami, 1991, hardware parecido), con puntuaciones en BCD y su propio juego de caracteres; no hay que suponer que coincide. Una vez escrita, la misma definición, con `<sameas>`, sirve para los demás sets de `ssriders` del mismo bloque de `hiscore.dat`.
