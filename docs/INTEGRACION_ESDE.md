@@ -2,6 +2,8 @@
 
 **Estado:** camino A instalado en la iMac el 2026-11-25: LaunchAgent cargado e imágenes generadas en `~/Library/Application Support/arcade-hall-of-fame/protector`. La configuración de ES-DE se cambia desde su menú (ES-DE estaba abierto y pisa `es_settings.xml` al salir); hay una copia previa en `~/ES-DE/settings/es_settings.xml.bak-20261125-214536`.
 
+**Actualización del 2026-11-26:** destacados con marquee y captura, pantallas OTROS RÉCORDS y QR al final; LaunchAgent reinstalado con `WEB_PUERTO=47474` (ahora también corre a diario a las 6) y el de la página web reiniciado para que regenere con el código nuevo. Las imágenes escaladas quedan en `~/Library/Application Support/arcade-hall-of-fame/cache-medios` (se pueden borrar: se rehacen solas).
+
 ## Salón de la Fama como sistema de ES-DE
 
 `contrib/macos/instalar_esde.sh` agrega un sistema propio para abrir la página web (alias y nombres, ver el README) desde ES-DE, como un juego más. Cómo lo resuelve ES-DE 3.0.2 en macOS:
