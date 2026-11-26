@@ -13,7 +13,7 @@ Proyecto para clasificar jugadores de máquinas arcade por la cantidad de juegos
 - [Arquitectura y plan de implementación](docs/PLAN.md), con el estado de cada etapa.
 - [Protocolo de validación con archivos reales](docs/VALIDACION.md) y resultados de cobertura.
 - [Cobertura sobre la colección de FBNeo de la iMac](docs/COBERTURA_FBNEO.md): qué juegos se pueden leer y por qué no el resto.
-- [Integración con ES-DE como protector de pantalla](docs/INTEGRACION_ESDE.md): evaluación y propuesta, sin aplicar.
+- [Integración con ES-DE](docs/INTEGRACION_ESDE.md): protector de pantalla con imágenes propias y sistema "Salón de la Fama" que abre la página web.
 - [Contribución y preparación para GitHub](CONTRIBUTING.md).
 
 ## Primer entorno objetivo
@@ -60,9 +60,97 @@ git pull
 
 Si después de actualizar el README indica una revisión nueva de las definiciones o de los DAT, repetir el paso 3.
 
+## Uso en la Mac: el comando `hof`
+
+`python3.13 -m arcade_hall_of_fame` solo funciona desde la carpeta del repositorio y con `PYTHONPATH=src`. Para no depender de eso, el repositorio trae el script `hof`: usa el Python 3.13 de python.org (si no está, `python3`), arma solo el `PYTHONPATH` y se puede llamar desde cualquier carpeta. Para copiar y pegar en la Terminal de la Mac:
+
+```sh
+# Qué récords no tienen nombre (sin iniciales: no se muestran ni suman al ranking)
+~/arcade-hall-of-fame/hof sin-nombre
+
+# Ponerle nombre al récord (1º) de un juego: hasta 12 caracteres, se pasa a mayúsculas
+~/arcade-hall-of-fame/hof nombrar mspacman CAMILA
+
+# Cambiar otra fila de la tabla: la que hoy dice TCH, o la del puesto 3
+~/arcade-hall-of-fame/hof nombrar bublbobl CAMILA --de TCH
+~/arcade-hall-of-fame/hof nombrar bublbobl CAMILA --puesto 3
+
+# Si dos filas dicen lo mismo, pide el puesto o los puntos
+~/arcade-hall-of-fame/hof nombrar bublbobl CAMILA --de TCH --puntos 30000
+
+# Quitar un nombre puesto (vuelven las iniciales del juego, o queda sin nombre)
+~/arcade-hall-of-fame/hof nombrar mspacman --quitar
+~/arcade-hall-of-fame/hof nombrar bublbobl --quitar --de CAMILA
+
+# Ranking, tabla de un juego y últimos récords
+~/arcade-hall-of-fame/hof ranking
+~/arcade-hall-of-fame/hof juego bublbobl
+~/arcade-hall-of-fame/hof records
+
+# Regenerar ya las imágenes del protector de ES-DE (el LaunchAgent lo hace solo)
+~/arcade-hall-of-fame/hof protector \
+    --salida "$HOME/Library/Application Support/arcade-hall-of-fame/protector" \
+    --carpeta "$HOME/Documents/RetroArch/saves/FinalBurn Neo/fbneo" \
+    --hiscore-dat "$HOME/Documents/RetroArch/system/fbneo/hiscore.dat" \
+    --gamelist "$HOME/ES-DE/gamelists/fbneo/gamelist.xml" --web-puerto 47474
+```
+
+`nombrar` y la página web regeneran las imágenes del protector al guardar. Para nombres de una misma persona en todos los juegos (por ejemplo, que TCH se muestre como TINCHOVA), conviene un alias: se cargan en la página web (sección GLOBAL).
+
+## Página web para el celular
+
+Una página muy simple, para usar desde el celular en la red de casa:
+
+- **GLOBAL**: alias de iniciales que valen para todos los juegos (TCH → TINCHOVA, hasta 12 caracteres): agregar, cambiar y borrar. Se aplican a todas las filas con esas iniciales, en el ranking, las tablas y las imágenes del protector. Muestra también el QR con la dirección de la página.
+- **SIN LEER**: juegos con un `.hi` guardado que todavía no se puede leer, con el motivo y desde cuándo (solo informa: hay que escribir su definición).
+- **Cada juego** con récords: su tabla con todas las filas de jugadores, para ponerle nombre a cada una (como `nombrar --puesto`) o quitárselo. Los juegos con filas sin nombre llevan la cantidad (`2?`), y lo que apareció desde la visita anterior se marca NUEVO.
+
+Lo que se muestra en cada fila: **nombre puesto a esa fila > alias de sus iniciales > iniciales del juego**. El alias también se aplica a un nombre puesto: si a un récord sin iniciales se le pone TCH, se muestra TINCHOVA. El ranking agrupa por ese nombre final, sin distinguir mayúsculas ni espacios. Los alias se guardan en la base; los de `jugadores.json` siguen valiendo y se muestran, pero se cambian en el archivo (un alias de la base con las mismas iniciales gana).
+
+La página no escanea por su cuenta: lee lo que registra el LaunchAgent del protector, que escanea cada vez que FBNeo guarda un `.hi`.
+
+Instalación en la Mac (LaunchAgent que la deja andando, también después de reiniciar):
+
+```sh
+~/arcade-hall-of-fame/contrib/macos/instalar_web.sh
+# para quitarla:
+~/arcade-hall-of-fame/contrib/macos/instalar_web.sh --desinstalar
+```
+
+Puerto fijo: **47474** (se cambia con `PUERTO=...`). Direcciones para abrirla desde el celular, conectado al mismo wifi:
+
+- `http://<nombre de la Mac>.local:47474/`: no depende de la IP, así que sigue sirviendo si la Mac se lleva a otra casa. El nombre es el de `scutil --get LocalHostName` (Preferencias del Sistema → Compartir; en la iMac, `Arcade`, o sea `http://Arcade.local:47474/`). iPhone lo resuelve siempre; algunos Android, no.
+- `http://<IP de la Mac>:47474/`: la IP actual, que es la que va en el QR. El QR se muestra en la página (GLOBAL) y como una imagen más del protector de ES-DE ("PONER NOMBRES / ESCANEA CON EL CELULAR"); si la IP cambia, la imagen se regenera.
+
+Para probarla sin instalar: `~/arcade-hall-of-fame/hof web` (Ctrl+C para cerrarla).
+
+### Límite de seguridad
+
+La página **no tiene cuentas ni contraseñas**: cualquiera conectado a la misma red (el wifi de casa) puede cambiar nombres y alias. Está pensada solo para eso, y se protege así:
+
+- escucha en el puerto 47474 y responde solo a direcciones de la red local (`192.168.x.x`, `10.x.x.x`, `172.16-31.x.x`, enlace local y el propio equipo); a cualquier otra le devuelve 403;
+- acepta solo pedidos dirigidos a una IP, a `localhost` o a un nombre `.local` (contra el "DNS rebinding": una página de Internet no puede usar el navegador del celular para hablarle);
+- los envíos tienen que salir de la misma página (`Origin`/`Referer`): otra página abierta en el celular no puede mandar el formulario;
+- solo atiende la página y cuatro envíos (`/nombrar`, `/quitar`, `/alias`, `/alias/borrar`); no sirve archivos ni muestra otra cosa, y valida todo lo que recibe (tamaño, formato, juego, puesto y puntos de la fila, largo y caracteres del texto);
+- no usa JavaScript, y la página prohíbe cargar cualquier recurso externo (Content-Security-Policy).
+
+**No abrir ni redirigir el puerto 47474 en el router**: expuesta a Internet, cualquiera podría cambiar los nombres.
+
+### Abrirla desde ES-DE
+
+`contrib/macos/instalar_esde.sh` agrega a ES-DE un sistema propio, **Salón de la Fama**, con una entrada, **Poner nombres**, que abre la página en Firefox a pantalla completa (modo kiosco, con un perfil propio). Al cerrar Firefox con **Cmd+Q** se vuelve a ES-DE. Si la página no está instalada como LaunchAgent, la entrada la levanta mientras Firefox está abierto.
+
+```sh
+~/arcade-hall-of-fame/contrib/macos/instalar_esde.sh
+# para quitarlo:
+~/arcade-hall-of-fame/contrib/macos/instalar_esde.sh --desinstalar
+```
+
+Toca solo `~/ES-DE/custom_systems/es_systems.xml` (antes deja una copia con la fecha, `es_systems.xml.bak-AAAAMMDD-HHMMSS`) y crea `~/ROMs/salondelafama/Poner nombres.sh`. No toca `es_settings.xml`. ES-DE lee los sistemas al arrancar: hay que cerrarlo y volver a abrirlo para que aparezca. Ver [INTEGRACION_ESDE.md](docs/INTEGRACION_ESDE.md#salón-de-la-fama-como-sistema-de-es-de).
+
 ## Uso actual
 
-Objetivo: Python 3.11 o posterior. El núcleo también funciona con el Python 3.8 que trae macOS Catalina, pero la pantalla necesita Tk 8.6: en la iMac se usa el Python 3.13 de python.org (`/Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13`). No tiene dependencias externas. Todos los comandos se ejecutan desde la raíz del repositorio.
+Objetivo: Python 3.11 o posterior. El núcleo también funciona con el Python 3.8 que trae macOS Catalina, pero la pantalla necesita Tk 8.6: en la iMac se usa el Python 3.13 de python.org (`/Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13`). No tiene dependencias externas. Los comandos de esta sección se ejecutan desde la raíz del repositorio con `PYTHONPATH=src`; en la Mac es más simple el script `hof` (sección anterior), que funciona desde cualquier carpeta.
 
 1. Descargar las definiciones de hi2txt-xml (revisión fijada y verificada con SHA-256) a `local/`, carpeta excluida de Git:
 
@@ -136,20 +224,26 @@ Las iniciales son las guardadas por el juego, y el ranking las usa tal cual. Par
 
 Las entradas de fábrica (según las tablas `db_defaults` de hi2txt-xml) no dan crédito y no se muestran en la pantalla ni en las imágenes; un juego que solo tiene entradas de fábrica no aparece. Siguen guardadas en la base y se ven con `juego <nombre>`.
 
-### Récords sin iniciales
+### Récords sin iniciales y nombres puestos a mano
 
-Algunos juegos no guardan iniciales (Pac-Man, Ms. Pac-Man) y en otros el jugador puede no cargarlas. Ese récord se guarda, pero no suma al ranking y no se muestra hasta que alguien le pone nombre:
+Algunos juegos no guardan iniciales (Pac-Man, Ms. Pac-Man) y en otros el jugador puede no cargarlas. Ese récord se guarda, pero no suma al ranking y no se muestra hasta que alguien le pone nombre, con `nombrar` o desde la página web:
 
 ```sh
 python -m arcade_hall_of_fame sin-nombre            # cuáles faltan (también en `pendientes` y en hof-pendientes.txt)
 python -m arcade_hall_of_fame nombrar mspacman ANA  # el récord vigente de Ms. Pac-Man queda a nombre de ANA
 python -m arcade_hall_of_fame nombrar mspacman ANA --puntos 25000  # igual, pero falla si el récord ya es otro
+python -m arcade_hall_of_fame nombrar bublbobl CAMILA --de TCH     # la fila que hoy dice TCH
+python -m arcade_hall_of_fame nombrar bublbobl CAMILA --puesto 3   # la fila del puesto 3
 python -m arcade_hall_of_fame nombrar mspacman --quitar           # deshacer
 ```
 
-`nombrar` también cambia las iniciales de un récord que sí las tiene, por ejemplo las que el juego propone por defecto: `nombrar bublbobl ANA` reemplaza las del récord vigente de Bubble Bobble para esa puntuación. Las originales quedan guardadas: `juego bublbobl` las muestra y `nombrar bublbobl --quitar` las devuelve. Si el récord está empatado entre iniciales distintas, no se cambia.
+Sin opciones, `nombrar` actúa sobre el récord (1º). `--de` elige la fila por el nombre que se ve hoy (las iniciales del juego o un nombre ya puesto) y `--puesto` por su posición en la tabla vigente; si dos filas tienen el mismo nombre, pide `--puesto` o `--puntos`. `--quitar` acepta las mismas opciones.
 
-El nombre queda en la base, asociado a esa puntuación exacta: desde ahí el juego aparece en su tabla con ese nombre y suma al ranking (también se agrupa con `jugadores.json`). Si después el récord cambia, el nuevo vuelve a quedar sin nombre. Las iniciales se pasan a mayúsculas y pueden tener hasta 10 caracteres. Al terminar, `nombrar` regenera las imágenes del protector si su carpeta existe (`--protector`, `ARCADE_HOF_PROTECTOR` o, por defecto, `protector/` en la carpeta de datos), con las mismas opciones que usó el comando `protector` la última vez; no hace falta esperar a otra partida.
+`nombrar` también cambia las iniciales de una fila que sí las tiene, por ejemplo las que el juego propone por defecto: `nombrar bublbobl ANA` reemplaza las del récord vigente de Bubble Bobble para esa puntuación. Las originales quedan guardadas: `juego bublbobl` las muestra y `nombrar bublbobl --quitar` las devuelve. Dos filas empatadas en puntos con iniciales distintas no se pueden cambiar.
+
+El nombre queda en la base, atado a esa fila exacta (juego, puntuación e iniciales originales): desde ahí aparece en su tabla con ese nombre y suma al ranking. Si la fila baja de puesto porque otro la supera, conserva el nombre; si el récord cambia, el nuevo vuelve a quedar sin nombre. Los nombres y los alias se pasan a mayúsculas y pueden tener hasta 12 caracteres, que es lo que entra en la columna JUGADOR de todas las pantallas (por eso la fecha de últimos récords va sin hora). Al terminar, `nombrar` regenera las imágenes del protector si su carpeta existe (`--protector`, `ARCADE_HOF_PROTECTOR` o, por defecto, `protector/` en la carpeta de datos), con las mismas opciones que usó el comando `protector` la última vez; no hace falta esperar a otra partida.
+
+Lo que se muestra en cada fila es: nombre puesto a la fila > alias de sus iniciales (de la página web o de `jugadores.json`) > iniciales del juego. El ranking agrupa por ese nombre final, sin distinguir mayúsculas ni espacios.
 
 Con `--mostrar-sin-iniciales` (o `ARCADE_HOF_MOSTRAR_SIN_INICIALES=1`), la pantalla y las imágenes muestran también los récords sin nombre, con el jugador como `???`. Está desactivada por defecto.
 
@@ -172,6 +266,8 @@ Las definiciones de juegos que usa este proyecto son obra de **GreatStoneEx (Gre
 
 Los nombres de los juegos salen de los DAT de **FinalBurn Neo** ([libretro/FBNeo](https://github.com/libretro/FBNeo), revisión `d25b21e733fd4ee07980a65268abb5706fc3549d`, versión 1.0.0.03). Tampoco se redistribuyen: se descargan con `fetch_names` y conservan la licencia de FinalBurn Neo.
 
+El código QR se genera con [QR Code generator library](https://www.nayuki.io/page/qr-code-generator-library) de **Project Nayuki** (licencia MIT), versión 1.8.0, copiada sin cambios en `src/arcade_hall_of_fame/vendor/qrcodegen.py` con su aviso de licencia.
+
 La tipografía pixel de la pantalla es propia del proyecto (glifos de 5 x 7 dibujados en código). La paleta parte de las recomendaciones del skill de diseño ui-ux-pro-max. Los colores siguen una regla única, igual en la ventana y en las imágenes del protector: en las tablas con posiciones, las filas del 1º, 2º y 3º van enteras en oro, plata y bronce (posición, jugador, puntos o récords y juegos); del 4º en adelante, posición y jugador en gris claro, puntos en blanco y juego en celeste; en últimos récords, sin podio, el jugador en gris claro y la fecha en un gris más apagado. La paleta está definida en un solo lugar, `src/arcade_hall_of_fame/ui/screens.py`.
 
 hi2txt-xml, a su vez, reconoce el trabajo de HiToText y de los mantenedores de `hiscore.dat` (Leezer y otros). Este repositorio no contiene ni redistribuye esas definiciones ni el motor de hi2txt: cada usuario las descarga con el comando anterior, y conservan su licencia original. El intérprete de este proyecto es código propio.
@@ -182,4 +278,4 @@ Ver [el estado de las etapas](docs/PLAN.md#estado-de-las-etapas). En resumen: pr
 
 ## Licencia
 
-El código de este repositorio se publica con licencia [MIT](LICENSE) (Copyright (c) 2026 tinchova). Las definiciones de hi2txt-xml (GPL v2) y los DAT de FinalBurn Neo no forman parte del repositorio y conservan sus propias licencias.
+El código de este repositorio se publica con licencia [MIT](LICENSE) (Copyright (c) 2026 tinchova), salvo `src/arcade_hall_of_fame/vendor/qrcodegen.py`, de Project Nayuki, también MIT. Las definiciones de hi2txt-xml (GPL v2) y los DAT de FinalBurn Neo no forman parte del repositorio y conservan sus propias licencias.

@@ -2,6 +2,19 @@
 
 **Estado:** camino A instalado en la iMac el 2026-11-25: LaunchAgent cargado e imágenes generadas en `~/Library/Application Support/arcade-hall-of-fame/protector`. La configuración de ES-DE se cambia desde su menú (ES-DE estaba abierto y pisa `es_settings.xml` al salir); hay una copia previa en `~/ES-DE/settings/es_settings.xml.bak-20261125-214536`.
 
+## Salón de la Fama como sistema de ES-DE
+
+`contrib/macos/instalar_esde.sh` agrega un sistema propio para abrir la página web (alias y nombres, ver el README) desde ES-DE, como un juego más. Cómo lo resuelve ES-DE 3.0.2 en macOS:
+
+- Los sistemas propios van en `~/ES-DE/custom_systems/es_systems.xml`, con el mismo formato que el `es_systems.xml` incluido (`<systemList><system>...`). ES-DE los lee al arrancar, junto con los suyos; un sistema solo aparece si su carpeta tiene al menos una entrada con la extensión indicada.
+- El sistema: `name` `salondelafama`, `fullname` "Salón de la Fama", `path` `%ROMPATH%/salondelafama` (`ROMDirectory` vacío en `es_settings.xml`, así que `~/ROMs/salondelafama`), `extension` `.sh` y `command` `%EMULATOR_OS-SHELL% %ROM%`, igual que el sistema `ports` incluido (`OS-SHELL` es `zsh` o `bash`). `theme` `salondelafama` no existe en Linear: ES-DE muestra el nombre del sistema como texto.
+- La entrada `Poner nombres.sh` abre Firefox en modo kiosco (`--kiosk`, pantalla completa sin barras) con un perfil propio (`~/Library/Application Support/arcade-hall-of-fame/firefox`, `--no-remote`), para no mezclarse con un Firefox ya abierto ni mostrar las pantallas de bienvenida. Sin `%RUNINBACKGROUND%`, ES-DE espera a que el comando termine y después vuelve a su pantalla: al cerrar Firefox con Cmd+Q se vuelve a ES-DE.
+- Se eligió Firefox en lugar de una ventana Tk propia: la página ya existe para el celular, se escribe con el teclado y Firefox maneja su pantalla completa sin crear un espacio aparte en el modo kiosco.
+
+## Imagen con el QR de la página
+
+Si la página web está instalada (`instalar_web.sh` reinstala el protector con `WEB_PUERTO=47474`), el protector agrega una imagen "PONER NOMBRES / ESCANEA CON EL CELULAR" con el QR de la dirección actual (`http://<IP>:47474/`) y, abajo, la dirección `.local` de la Mac. La IP se detecta en cada generación: si la Mac cambia de red, la imagen se regenera en el siguiente escaneo.
+
 ## Volver atrás en la iMac
 
 1. Quitar el LaunchAgent: `~/arcade-hall-of-fame/contrib/macos/instalar_protector.sh --desinstalar`.

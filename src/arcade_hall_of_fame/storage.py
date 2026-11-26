@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 APP_NAME = "arcade-hall-of-fame"
 
 SCHEMA = """
@@ -120,6 +120,17 @@ SCHEMA_V4 = """
 ALTER TABLE record_names ADD COLUMN original_initials TEXT
 """
 
+# Agregado en la versión 5: alias de jugadores (iniciales -> nombre para mostrar),
+# editables desde la página web. Se suman a los de jugadores.json y, si una
+# misma inicial está en los dos, gana el de la base (ver players.py).
+SCHEMA_V5 = """
+CREATE TABLE player_aliases (
+    initials TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    updated_utc TEXT NOT NULL
+)
+"""
+
 BASELINE_NOTE = "línea base"
 NEW_GAME_NOTE = "primer récord de un juego nuevo"
 
@@ -161,7 +172,7 @@ class Database:
 
     def _migrate(self, version: int) -> None:
         """Crea o actualiza el esquema en una sola transacción (todo o nada)."""
-        steps = [(1, SCHEMA), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4)]
+        steps = [(1, SCHEMA), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5)]
         self.conn.execute("BEGIN")
         try:
             for target, script in steps:
@@ -272,6 +283,23 @@ class Database:
 
     def record_names(self) -> List[sqlite3.Row]:
         return self.conn.execute("SELECT * FROM record_names ORDER BY game, score_text").fetchall()
+
+    def aliases(self) -> Dict[str, str]:
+        """Alias de jugadores guardados en la base: iniciales -> nombre para mostrar."""
+        rows = self.conn.execute("SELECT initials, display_name FROM player_aliases ORDER BY initials").fetchall()
+        return {r["initials"]: r["display_name"] for r in rows}
+
+    def set_alias(self, initials: str, display_name: str, now: str) -> None:
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO player_aliases (initials, display_name, updated_utc) VALUES (?, ?, ?) "
+                "ON CONFLICT(initials) DO UPDATE SET display_name = excluded.display_name, "
+                "updated_utc = excluded.updated_utc", (initials, display_name, now))
+
+    def delete_alias(self, initials: str) -> bool:
+        with self.conn:
+            cursor = self.conn.execute("DELETE FROM player_aliases WHERE initials = ?", (initials,))
+        return cursor.rowcount > 0
 
     def setting(self, key: str) -> Optional[str]:
         row = self.conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()

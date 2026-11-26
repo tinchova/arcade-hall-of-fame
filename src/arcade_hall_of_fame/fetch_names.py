@@ -25,7 +25,8 @@ FILES = {
         "4d9e8a8524f95005e25f4348e0c3e817a313a1ac1cdf4438ac8f57000513d95b",
 }
 MAX_SIZE = 64 * 1024 * 1024
-DEFAULT_DIR = Path("local") / "fbneo-dats" / REVISION
+# Carpeta local/ del repositorio, aunque el comando se llame desde otra carpeta.
+DEFAULT_DIR = Path(__file__).resolve().parents[2] / "local" / "fbneo-dats" / REVISION
 
 
 def url_for(name: str) -> str:

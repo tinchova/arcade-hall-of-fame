@@ -1,0 +1,30 @@
+#!/bin/sh
+# Atajo para usar el programa desde cualquier carpeta, sin PYTHONPATH:
+#   ~/arcade-hall-of-fame/hof sin-nombre
+#   ~/arcade-hall-of-fame/hof nombrar mspacman CAMILA
+# Usa el Python 3.13 de python.org si está instalado; si no, python3.
+set -eu
+
+# Carpeta real del repositorio (también si hof se llama por un enlace simbólico).
+SCRIPT="$0"
+while [ -L "$SCRIPT" ]; do
+    LINK="$(readlink "$SCRIPT")"
+    case "$LINK" in
+        /*) SCRIPT="$LINK" ;;
+        *) SCRIPT="$(dirname "$SCRIPT")/$LINK" ;;
+    esac
+done
+REPO="$(cd "$(dirname "$SCRIPT")" && pwd -P)"
+
+PY="${PYTHON:-/Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13}"
+if [ ! -x "$PY" ]; then
+    PY="$(command -v python3 || true)"
+fi
+if [ -z "$PY" ]; then
+    echo "No se encontró Python 3 (instalar el de python.org)." >&2
+    exit 1
+fi
+
+PYTHONPATH="$REPO/src${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
+exec "$PY" -m arcade_hall_of_fame "$@"

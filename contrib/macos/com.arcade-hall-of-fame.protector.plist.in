@@ -26,6 +26,7 @@
         <string>@HISCORE_DAT@</string>
         <string>--gamelist</string>
         <string>@GAMELIST@</string>
+        @WEB@
     </array>
 
     <key>WorkingDirectory</key>

@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from .naming import entry_name, needs_name
-from .players import Players
+from .players import Players, name_key
 from .storage import Database
 
 
@@ -68,10 +68,18 @@ def leaders(db: Database, players: Optional[Players] = None) -> List[GameLeader]
 
 
 def player_ranking(db: Database, players: Optional[Players] = None) -> List[PlayerRank]:
+    # Se agrupa por el nombre final que se muestra (nombre puesto > alias > iniciales),
+    # sin distinguir mayúsculas ni espacios de más: TINCHOVA puesto a mano en un juego
+    # y TCH con alias TINCHOVA en otro son la misma fila del ranking.
     games: Dict[str, List[str]] = {}
+    shown: Dict[str, str] = {}
     for leader in leaders(db, players):
         for initials in leader.holders:
-            games.setdefault(initials, []).append(leader.game)
+            key = name_key(initials)
+            shown.setdefault(key, initials)
+            if leader.game not in games.setdefault(key, []):
+                games[key].append(leader.game)
+    games = {shown[k]: v for k, v in games.items()}
     ordered = sorted(games.items(), key=lambda item: (-len(item[1]), item[0]))
     ranking = []
     previous_count, position = None, 0

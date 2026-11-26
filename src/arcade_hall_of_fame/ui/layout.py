@@ -71,6 +71,10 @@ def layout(screen: Screen, width: int, height: int, footer_left: str = "", foote
     _text(ops, (width - pf.text_width(subtitle, s)) // 2, y, subtitle, SUBTITLE, s)
     y += 2 * line
 
+    if screen.qr:
+        _qr(ops, screen, width, y, x0, y0, s, line, border)
+        return ops
+
     # Encabezado de columnas y separador.
     x = x0
     positions = []
@@ -137,3 +141,35 @@ def wrap(text: str, width: int) -> List[str]:
     if current:
         lines.append(current)
     return lines or [""]
+
+
+def _qr(ops: List[Op], screen: Screen, width: int, y: int, x0: int, y0: int, s: int, line: int, border: int) -> None:
+    """Código QR centrado (negro sobre blanco, con margen de 4 módulos), y las notas abajo."""
+    modules = len(screen.qr)
+    notes = screen.notes[:2]
+    bottom = y0 + GRID_LINES * line - border - line * (2 + len(notes))
+    side = min(bottom - y, GRID_COLS * pf.ADVANCE * s // 2)
+    module = max(1, side // (modules + 8))
+    total = module * (modules + 8)
+    qx = (width - total) // 2
+    ops.append(("rect", qx, y, total, total, "#ffffff"))
+    for row, cells in enumerate(screen.qr):
+        x = 0
+        while x < modules:  # tramos horizontales, para dibujar menos rectángulos
+            if cells[x]:
+                start = x
+                while x < modules and cells[x]:
+                    x += 1
+                ops.append(("rect", qx + (4 + start) * module, y + (4 + row) * module, (x - start) * module,
+                            module, "#000000"))
+            else:
+                x += 1
+    note_y = y + total + line // 2
+    for text, color in notes:
+        t = pf.fit(text, GRID_COLS)
+        _text(ops, (width - pf.text_width(t, s)) // 2, note_y, t, color, s)
+        note_y += line
+    if screen.status:
+        status = pf.fit(screen.status, GRID_COLS)
+        _text(ops, (width - pf.text_width(status, s)) // 2, y0 + GRID_LINES * line - line - border, status,
+              HEADER_DIM, s)

@@ -18,7 +18,7 @@ from . import DefinitionLibrary, read_file
 from .fetch import REVISION
 from .formats import render
 
-DEFAULT_DB = Path("local") / "hi2txt-xml" / REVISION / "src" / "main" / "db"
+DEFAULT_DB = Path(__file__).resolve().parents[3] / "local" / "hi2txt-xml" / REVISION / "src" / "main" / "db"
 
 
 def main(argv: list[str] | None = None) -> int:

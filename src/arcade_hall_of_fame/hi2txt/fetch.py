@@ -75,7 +75,7 @@ def extract(archive: bytes, destination: Path, include_tests: bool) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Descarga las definiciones de hi2txt-xml.")
-    parser.add_argument("--destino", default="local/hi2txt-xml", help="carpeta base (por defecto local/hi2txt-xml)")
+    parser.add_argument("--destino", default=str(Path(__file__).resolve().parents[3] / "local" / "hi2txt-xml"), help="carpeta base (por defecto local/hi2txt-xml)")
     parser.add_argument("--pruebas", action="store_true", help="incluir src/test (entradas y salidas esperadas)")
     parser.add_argument("--archivo", help="usar un .zip ya descargado en vez de descargarlo")
     args = parser.parse_args(argv)

@@ -12,6 +12,10 @@ Uso, desde la raíz del repositorio::
     python -m arcade_hall_of_fame nombrar <juego> <iniciales>
     python -m arcade_hall_of_fame pantalla --carpeta "<carpeta de partidas>/fbneo"
     python -m arcade_hall_of_fame protector --salida <carpeta de imágenes> --carpeta "<partidas>/fbneo"
+    python -m arcade_hall_of_fame web          # página para el celular (red local): alias y nombres
+
+En la Mac, el script ``hof`` de la raíz del repositorio hace lo mismo desde
+cualquier carpeta: ``~/arcade-hall-of-fame/hof nombrar mspacman ANA``.
 
 Opciones comunes: ``--base`` (archivo SQLite; por defecto en la carpeta de
 datos del usuario) y ``--definiciones`` (carpeta ``src/main/db`` descargada con
@@ -33,13 +37,28 @@ from .hi2txt.defaults import FactoryTables
 from .hi2txt.fetch import REVISION
 from .hi2txt.hiscore_dat import load_hiscore_dat
 from .models import HighScoreError
-from .naming import UNNAMED, NamingError, assign_name, entry_name, remove_name, unnamed_records
+from .naming import UNNAMED, NamingError, assign_name, entry_name, remove_name, select_row, unnamed_records
 from .rankings import leaders, player_ranking, recent_records
 from .scanner import scan, utc_now
-from .players import Players
+from .players import load_players
 from .storage import PENDING_SEEN_KEY, Database, default_data_dir, default_database, default_players_file
 
-DEFAULT_DB_DIR = Path("local") / "hi2txt-xml" / REVISION / "src" / "main" / "db"
+REPO_DIR = Path(__file__).resolve().parents[2]
+DEFAULT_DB_DIR = REPO_DIR / "local" / "hi2txt-xml" / REVISION / "src" / "main" / "db"
+# Comando que se muestra en los mensajes de ayuda (el script hof de la raíz del repositorio).
+def _hof_command() -> str:
+    if os.environ.get("ARCADE_HOF_COMANDO"):
+        return os.environ["ARCADE_HOF_COMANDO"]
+    script = REPO_DIR / "hof"
+    if not script.is_file():
+        return "python -m arcade_hall_of_fame"
+    try:
+        return "~/" + script.relative_to(Path.home()).as_posix()
+    except ValueError:
+        return str(script)
+
+
+HOF = _hof_command()
 
 
 def local_time(utc_text: str) -> str:
@@ -121,7 +140,8 @@ def unnamed_lines(db: Database) -> List[str]:
         return ["No hay récords sin nombre."]
     lines = [f"Récords sin nombre: {len(rows)}",
              f"No tienen iniciales: no se muestran (o salen como {UNNAMED}) ni suman al ranking.",
-             "Para ponerles nombre: python -m arcade_hall_of_fame nombrar <juego> <iniciales>", ""]
+             f"Para ponerles nombre: {HOF} nombrar <juego> <iniciales>",
+             "  (o desde el celular, con la página web: ver README)", ""]
     table = [[r.game, r.score_text, local_time(r.detected_utc)] for r in rows]
     headers = ["Juego", "Récord", "Desde"]
     widths = [max(len(str(x)) for x in [h] + [row[i] for row in table]) for i, h in enumerate(headers)]
@@ -137,34 +157,29 @@ def cmd_unnamed(args, db: Database) -> int:
 
 
 def cmd_name(args, db: Database) -> int:
+    chosen = args.puesto is not None or args.de is not None
     if args.quitar:
         if args.iniciales:
             print("Con --quitar no se indican iniciales.", file=sys.stderr)
             return 2
-        score, original = remove_name(db, args.juego)
+        score, original = remove_name(db, args.juego, args.puntos, args.puesto, args.de)
+        what = f"la fila de {score}" if chosen else f"el récord {score}"
         if original:
-            print(f"{args.juego}: el récord {score} vuelve a las iniciales originales del juego: {original}.")
+            print(f"{args.juego}: {what} vuelve a las iniciales originales del juego: {original}.")
         else:
-            print(f"{args.juego}: el récord {score} quedó otra vez sin nombre ({UNNAMED}).")
+            print(f"{args.juego}: {what} quedó otra vez sin nombre ({UNNAMED}).")
         refresh_protector_after_naming(args, db)
         return 0
     if not args.iniciales:
-        print("Faltan las iniciales: nombrar <juego> <iniciales>", file=sys.stderr)
+        print(f"Faltan las iniciales: {HOF} nombrar <juego> <iniciales> [--de <nombre actual> | --puesto N]",
+              file=sys.stderr)
         return 2
-    source = db.source(args.juego)
-    previous = None
-    if source is not None and source["current_observation_id"]:
-        observation = db.observation(source["current_observation_id"])
-        row = db.record_name(args.juego, observation["top_score_text"])
-        if row is not None:
-            previous = row["initials"]
-        else:
-            top = [e for e in db.entries(observation["id"]) if e["score_num"] == observation["top_score_num"]]
-            previous = next((e["initials"].strip() for e in top if (e["initials"] or "").strip()), None)
-    record = assign_name(db, args.juego, args.iniciales, utc_now(), "comando", args.puntos)
+    previous = select_row(db, args.juego, args.puesto, args.de, args.puntos).name
+    record = assign_name(db, args.juego, args.iniciales, utc_now(), "comando", args.puntos, args.puesto, args.de)
     name = db.record_name(record.game, record.score_text)["initials"]
     change = f" (antes: {previous})" if previous and previous != name else ""
-    print(f"{record.game}: el récord {record.score_text} queda a nombre de {name}{change}.")
+    what = f"la fila del puesto {record.position} ({record.score_text})" if chosen else f"el récord {record.score_text}"
+    print(f"{record.game}: {what} queda a nombre de {name}{change}.")
     refresh_protector_after_naming(args, db)
     return 0
 
@@ -188,8 +203,57 @@ def refresh_protector_after_naming(args, db: Database) -> None:
     protector_args = argparse.Namespace(
         salida=str(out), carpeta=None, tamano=tuple(options["tamano"]),
         mostrar_sin_iniciales=options["mostrar_sin_iniciales"], gamelist=options["gamelist"],
-        dat=options["dat"], definiciones=options["definiciones"], jugadores=options["jugadores"])
+        dat=options["dat"], definiciones=options["definiciones"], jugadores=options["jugadores"],
+        web_puerto=options.get("web_puerto"))
     update_protector(protector_args, db)
+
+
+def names_loader(args):
+    """Función juegos -> GameNames, con caché (el DAT de FBNeo pesa varios MB)."""
+    import threading
+
+    from .fetch_names import DEFAULT_DIR as DEFAULT_DATS
+    from .names import from_files
+
+    dats = [Path(d) for d in (args.dat or [])] or [DEFAULT_DATS]
+    cache = {}
+    lock = threading.Lock()
+
+    def load(games):
+        with lock:
+            if "names" not in cache or not set(games) <= cache["games"]:
+                cache["games"] = set(games) | cache.get("games", set())
+                cache["names"] = from_files(args.gamelist, dats, Path(args.definiciones), sorted(cache["games"]))
+            return cache["names"]
+
+    return load
+
+
+def cmd_web(args, db: Database) -> int:
+    """Página para el celular, solo en la red local: alias de jugadores y nombres de récords."""
+    from .direccion import page_urls, qr_svg
+    from .players import Players
+    from .web import WebConfig, make_server
+
+    names = names_loader(args)
+    server_names = lambda d, games: {g: names(games).name(g) for g in games}  # noqa: E731
+    server = make_server(WebConfig(Path(args.base), server_names), args.direccion, args.puerto)
+    port = server.server_address[1]
+    urls = page_urls(port) if args.direccion in ("0.0.0.0", "") else [f"http://{args.direccion}:{port}/"]
+    config = server.RequestHandlerClass.config
+    config.file_players = lambda: Players.load(Path(args.jugadores))
+    config.after_change = lambda d: refresh_protector_after_naming(args, d)
+    config.addresses = urls
+    config.qr_svg = qr_svg(urls[0]) if urls else ""
+    for url in urls or [f"http://<IP de este equipo>:{port}/"]:
+        print(f"Página del Salón de la Fama: {url}  (solo red local)", flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0
 
 
 def cmd_pending(args, db: Database) -> int:
@@ -207,7 +271,7 @@ def cmd_pending(args, db: Database) -> int:
 
 
 def cmd_ranking(args, db: Database) -> int:
-    players = Players.load(Path(args.jugadores))
+    players = load_players(Path(args.jugadores), db)
     ranking = player_ranking(db, players)
     if ranking:
         print_table(["Pos", "Jugador", "Primeros puestos", "Juegos"],
@@ -253,7 +317,7 @@ def cmd_game(args, db: Database) -> int:
 
 
 def cmd_records(args, db: Database) -> int:
-    events = recent_records(db, args.n, Players.load(Path(args.jugadores)))
+    events = recent_records(db, args.n, load_players(Path(args.jugadores), db))
     if not events:
         print("Todavía no hay récords con titular.")
         return 0
@@ -291,7 +355,6 @@ def screen_builder(args, db: Database):
     from .names import from_files
     from .ui.screens import build_screens
 
-    players = Players.load(Path(args.jugadores))
     dats = [Path(d) for d in (args.dat or [])] or [DEFAULT_DATS]
     cache = {}
 
@@ -302,6 +365,8 @@ def screen_builder(args, db: Database):
         if "names" not in cache or not all(g in cache["games"] for g in games):
             cache["names"] = from_files(args.gamelist, dats, Path(args.definiciones), games)
             cache["games"] = set(games)
+        # Los alias se releen cada vez: se pueden cambiar desde la página web.
+        players = load_players(Path(args.jugadores), db)
         return build_screens(db, players, cache["names"], show_no_initials=args.mostrar_sin_iniciales)
 
     return build
@@ -365,10 +430,18 @@ def update_protector(args, db: Database) -> None:
     from .ui.screens import plural
 
     width, height = args.tamano
-    state = data_state(db, (width, height, args.mostrar_sin_iniciales, args.gamelist, args.dat))
+    web_port = getattr(args, "web_puerto", None)
+    urls = []
+    if web_port:
+        from .direccion import page_urls
+
+        urls = page_urls(web_port)  # si cambia la IP (otra red), cambia el QR
+    state = data_state(db, (width, height, args.mostrar_sin_iniciales, args.gamelist, args.dat, args.jugadores,
+                            urls))
     options = {"tamano": [width, height], "mostrar_sin_iniciales": bool(args.mostrar_sin_iniciales),
                "gamelist": args.gamelist, "dat": args.dat,
-               "definiciones": str(Path(args.definiciones).resolve()), "jugadores": str(Path(args.jugadores).resolve())}
+               "definiciones": str(Path(args.definiciones).resolve()), "jugadores": str(Path(args.jugadores).resolve()),
+               "web_puerto": web_port}
     from .protector import boot_id
 
     report = generate(lambda: build_screens_for_protector(args, db), Path(args.salida), width, height, state, options,
@@ -399,7 +472,27 @@ def build_screens_for_protector(args, db: Database):
     status = f"{games}  ACTUALIZADO {local_stamp(last)}" if last else games
     for screen in screens:
         screen.status = status
+    web = web_screen(getattr(args, "web_puerto", None))
+    if web is not None:
+        web.status = status
+        screens.insert(min(len(screens), 2), web)  # después del ranking y los últimos récords
     return screens
+
+
+def web_screen(port: Optional[int]):
+    """Pantalla con el QR de la página web, o None si no se pidió o no hay red."""
+    if not port:
+        return None
+    from .direccion import page_urls, qr_matrix
+    from .ui.screens import HEADER, SUBTITLE, Screen
+
+    urls = page_urls(port)
+    if not urls:
+        return None
+    notes = [(urls[0].replace("http://", ""), HEADER)]
+    if len(urls) > 1:
+        notes.append((urls[1].replace("http://", ""), SUBTITLE))
+    return Screen("web", "PONER NOMBRES", "ESCANEA CON EL CELULAR", (), [], notes, qr=qr_matrix(urls[0]))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -455,6 +548,8 @@ def build_parser() -> argparse.ArgumentParser:
                    default=os.environ.get("ARCADE_HOF_MOSTRAR_SIN_INICIALES", "") in ("1", "si", "true"),
                    help="mostrar también los récords sin iniciales ni nombre, como ??? (ocultos por defecto)")
     p.add_argument("--tamano", type=parse_size, default=(1920, 1080), help="tamaño de las imágenes (1920x1080)")
+    p.add_argument("--web-puerto", type=int, default=None,
+                   help="agregar una imagen con el QR de la página web en este puerto (por ejemplo 47474)")
     p.add_argument("--compactar", action="store_true",
                    help="borrar ya las imágenes sobrantes (por defecto se reescriben como relleno hasta el "
                         "próximo arranque; usar con el protector de ES-DE cerrado)")
@@ -468,12 +563,28 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("nombrar", help="poner o cambiar las iniciales del récord vigente de un juego")
     p.add_argument("juego")
     p.add_argument("iniciales", nargs="?")
-    p.add_argument("--puntos", help="puntuación esperada: falla si el récord vigente es otro")
-    p.add_argument("--quitar", action="store_true", help="quitar el nombre puesto al récord vigente")
+    p.add_argument("--puntos", help="puntuación esperada: falla si el récord vigente es otro "
+                                    "(con --de, también sirve para elegir entre filas con el mismo nombre)")
+    p.add_argument("--de", metavar="NOMBRE",
+                   help="cambiar la fila que hoy está a este nombre (iniciales del juego o nombre puesto)")
+    p.add_argument("--puesto", type=int, metavar="N", help="cambiar la fila de este puesto de la tabla vigente")
+    p.add_argument("--quitar", action="store_true", help="quitar el nombre puesto (al récord, o a la fila elegida)")
     p.add_argument("--protector", default=os.environ.get("ARCADE_HOF_PROTECTOR"),
                    help="carpeta de imágenes del protector a regenerar si existe "
                         "(por defecto, protector/ en la carpeta de datos)")
     p.set_defaults(func=cmd_name)
+    p = sub.add_parser("web", help="página para el celular (solo red local): alias de jugadores y nombres de récords")
+    p.add_argument("--direccion", default=os.environ.get("ARCADE_HOF_WEB_DIRECCION", "0.0.0.0"),
+                   help="dirección donde escuchar (0.0.0.0: todas; igual responde solo a la red local)")
+    p.add_argument("--puerto", type=int, default=int(os.environ.get("ARCADE_HOF_WEB_PUERTO", "47474")),
+                   help="puerto (47474)")
+    p.add_argument("--gamelist", default=os.environ.get("ARCADE_HOF_GAMELIST"),
+                   help="gamelist.xml de ES-DE para los nombres de los juegos (solo lectura)")
+    p.add_argument("--dat", action="append", help="DAT de FBNeo o carpeta con DAT")
+    p.add_argument("--protector", default=os.environ.get("ARCADE_HOF_PROTECTOR"),
+                   help="carpeta de imágenes del protector a regenerar al guardar "
+                        "(por defecto, protector/ en la carpeta de datos)")
+    p.set_defaults(func=cmd_web)
     p = sub.add_parser("aceptar", help="aceptar un estado pendiente como nueva línea base")
     p.add_argument("nombre")
     p.set_defaults(func=cmd_accept)

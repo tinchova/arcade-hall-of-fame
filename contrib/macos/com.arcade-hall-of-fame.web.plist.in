@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Plantilla del LaunchAgent de la página web (alias y nombres desde el celular).
+  instalar_web.sh reemplaza los valores @...@ y la copia a ~/Library/LaunchAgents/.
+  launchd la arranca al iniciar sesión y la vuelve a arrancar si se cierra
+  (KeepAlive). Escucha en el puerto @PUERTO@ y responde solo a la red local.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.arcade-hall-of-fame.web</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>@PYTHON@</string>
+        <string>-m</string>
+        <string>arcade_hall_of_fame</string>
+        <string>web</string>
+        <string>--puerto</string>
+        <string>@PUERTO@</string>
+        <string>--gamelist</string>
+        <string>@GAMELIST@</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>@REPO@</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key>
+        <string>@REPO@/src</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>StandardOutPath</key>
+    <string>@LOG@</string>
+
+    <key>StandardErrorPath</key>
+    <string>@LOG@</string>
+</dict>
+</plist>

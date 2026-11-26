@@ -36,10 +36,10 @@ from .ui.screens import Screen
 PREFIX = "hof-"
 MANIFEST = ".hof-protector.json"
 TEMP_SUFFIX = ".part"
-FORMAT_VERSION = 8  # 2: fondo negro, sin fábrica, nombres puestos a mano; 3: singular y opciones;
+FORMAT_VERSION = 9  # 2: fondo negro, sin fábrica, nombres puestos a mano; 3: singular y opciones;
 # 4: columna RECORDS, JUEGOS con +N, bloque arriba y estado abajo, línea base en últimos récords
 # 5: regla única de colores (podio, resto gris, puntos blancos, juego celeste), sin banda en la fila 1; 6: plata acerada; 7: subtítulo TOP GLOBAL
-# 8: filas del podio enteras en oro, plata y bronce
+# 8: filas del podio enteras en oro, plata y bronce; 9: alias de jugadores y columnas JUGADOR de 12
 PENDING_FILE = PREFIX + "pendientes.txt"
 
 
@@ -66,6 +66,7 @@ def data_state(db: Database, options) -> str:
         "(SELECT game, score_text, initials FROM record_names ORDER BY game, score_text)"
     ).fetchone()[0]
     events = db.conn.execute("SELECT COALESCE(MAX(id), 0), COUNT(*) FROM record_events").fetchone()
+    aliases = sorted(db.aliases().items())
     flat = []
     for item in options:
         flat.extend(item if isinstance(item, (list, tuple)) else [item])
@@ -73,7 +74,7 @@ def data_state(db: Database, options) -> str:
     # si ES-DE agrega nombres, las imágenes se actualizan.
     files = [(item, Path(item).stat().st_size, Path(item).stat().st_mtime_ns)
              for item in flat if isinstance(item, str) and Path(item).is_file()]
-    text = repr((FORMAT_VERSION, tuple(row), accepted, named, tuple(events), flat, files))
+    text = repr((FORMAT_VERSION, tuple(row), accepted, named, tuple(events), aliases, flat, files))
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 

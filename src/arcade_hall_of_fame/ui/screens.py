@@ -64,6 +64,7 @@ class Screen:
     empty_message: str = ""
     page: str = ""
     status: str = ""  # línea de estado: juegos registrados y último escaneo
+    qr: Optional[List[List[bool]]] = None  # código QR en lugar de la tabla (pantalla de la página web)
 
 
 def plural(count: int, singular: str, plural_form: str) -> str:
@@ -98,7 +99,15 @@ def local_stamp(utc_text: str) -> str:
         return utc_text
 
 
-GAMES_WIDTH = 19  # ancho de la columna JUEGOS del ranking
+def local_day(utc_text: str) -> str:
+    """Día y mes locales (``26/11``), para la columna FECHA de últimos récords."""
+    try:
+        return datetime.fromisoformat(utc_text).astimezone().strftime("%d/%m")
+    except ValueError:
+        return utc_text[:5]
+
+
+GAMES_WIDTH = 17  # ancho de la columna JUEGOS del ranking (JUGADOR tiene 12, el máximo de un alias)
 GAMES_SHOWN = 2  # juegos que se nombran antes del "+N"
 
 
@@ -148,7 +157,7 @@ def ranking_screens(db: Database, players: Players, names: GameNames,
     if unnamed and show_no_initials:
         count = len(unnamed)
         notes.append((f"{plural(count, 'RECORD', 'RECORDS')} SIN NOMBRE ({UNNAMED}): NO SUMAN", DIM))
-    columns = (Column("POS", 3), Column("JUGADOR", 10), Column("RECORDS", 7, "right"),
+    columns = (Column("POS", 3), Column("JUGADOR", 12), Column("RECORDS", 7, "right"),
                Column("JUEGOS", GAMES_WIDTH))
     pages = _pages(rows)
     return [
@@ -169,14 +178,15 @@ def records_screen(db: Database, players: Players, names: GameNames, limit: int 
             continue
         holders = UNNAMED if e["unnamed"] else ", ".join(e["new_holders"])
         rows.append([
-            (local_stamp(e["detected_utc"]), FECHA),
+            (local_day(e["detected_utc"]), FECHA),
             (names.name(e["game"]), JUEGO),
             (e["new_top"], PUNTOS),
             (holders, DIM if e["unnamed"] else RESTO),
         ])
         if len(rows) == limit:
             break
-    columns = (Column("FECHA", 11), Column("JUEGO", 13), Column("PUNTOS", 8, "right"), Column("JUGADOR", 7))
+    # JUGADOR de 12: entra un alias completo (players.MAX_ALIAS); por eso la fecha va sin hora.
+    columns = (Column("FECHA", 5), Column("JUEGO", 14), Column("PUNTOS", 8, "right"), Column("JUGADOR", 12))
     return Screen("records", "ULTIMOS RECORDS", "RECORDS DETECTADOS", columns, rows, [],
                   "TODAVIA NO HAY RECORDS")
 

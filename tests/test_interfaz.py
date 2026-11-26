@@ -155,8 +155,8 @@ class GamesSummaryTest(unittest.TestCase):
         self.assertEqual(games_summary([]), "")
         long_name = "Teenage Mutant Ninja Turtles (World 4 Players)"
         self.assertEqual(games_summary([long_name]), "TEENAGE MUTANT.")  # cortado en un espacio
-        self.assertEqual(games_summary([long_name, "Qix", "Mappy"]), "TEENAGE MUTANT. +2")
-        self.assertEqual(games_summary(["Supercalifragilisticoespialidoso"]), "SUPERCALIFRAGILIST.")
+        self.assertEqual(games_summary([long_name, "Qix", "Mappy"]), "TEENAGE. +2")  # 17 caracteres: JUGADOR tiene 12
+        self.assertEqual(games_summary(["Supercalifragilisticoespialidoso"]), "SUPERCALIFRAGILI.")
         for count in (1, 3, 5, 12):
             for names in (games[:count], [long_name] * count, [f"{long_name} {i}" for i in range(count)]):
                 text = games_summary(names)

@@ -288,7 +288,7 @@ class ScanTest(HistoryTestCase):
         db = Database(path)
         self.addCleanup(db.close)
         self.assertEqual(db.unreadable(), [])
-        self.assertEqual(db.conn.execute("PRAGMA user_version").fetchone()[0], 4)
+        self.assertEqual(db.conn.execute("PRAGMA user_version").fetchone()[0], 5)
         self.assertEqual(db.record_names(), [])
 
     def test_base_de_la_version_3_conserva_los_nombres(self):
@@ -536,7 +536,7 @@ class NamingTest(CliTest):
         with self.assertRaisesRegex(NamingError, "fábrica"):
             assign_name(self.db, "democlon", "NC", "2026-11-25T12:00:00+00:00")
         self.assertEqual(clean_initials("  n  c "), "N C")
-        for bad in ("???", "A" * 11, "A\x00B"):
+        for bad in ("???", "A" * 13, "A\x00B"):
             with self.assertRaises(NamingError):
                 clean_initials(bad)
 
