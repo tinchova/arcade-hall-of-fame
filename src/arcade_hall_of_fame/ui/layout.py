@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import List, Tuple
 
 from . import pixelfont as pf
-from .screens import BG, CARD, DIM, FRAME, HEADER, HEADER_DIM, SCANLINE, SUBTITLE, TITLE, Screen
+from .screens import BG, DIM, FRAME, HEADER, HEADER_DIM, SCANLINE, SUBTITLE, TITLE, Screen
 
 GRID_COLS = 42  # caracteres de ancho del área de contenido
 GRID_LINES = 22  # líneas de alto
@@ -90,8 +90,6 @@ def layout(screen: Screen, width: int, height: int, footer_left: str = "", foote
         _text(ops, (width - pf.text_width(msg, s)) // 2, y + line, msg, DIM, s)
     for index, row in enumerate(screen.rows):
         ops.append(("row", index))  # inicio de fila: Tk las muestra de a una
-        if index == 0 and screen.highlight_first:
-            ops.append(("rect", x0 - s, y - 2 * s, content_w + 2 * s, line, CARD))
         for (cx, col), (text, color) in zip(positions, row):
             t = pf.fit(text, col.width)
             tx = cx + (col.width * char - pf.text_width(t, s) if col.align == "right" else 0)

@@ -13,24 +13,33 @@ from ..players import Players
 from ..rankings import leaders, player_ranking, recent_records
 from ..storage import Database
 
-# Paleta (tokens semánticos). Base tomada de las paletas "Gaming" y
-# "Arcade & Retro Game" del skill ui-ux-pro-max; contraste del texto sobre el
-# fondo de 4.5:1 o más (lo comprueba test_interfaz). El fondo es negro puro
-# para que se confunda con los bordes negros de la pantalla; por eso las
-# líneas de barrido son del mismo color (no se dibujan).
+# Paleta: el único lugar donde se definen colores. Base tomada de las paletas
+# "Gaming" y "Arcade & Retro Game" del skill ui-ux-pro-max; todo el texto tiene
+# contraste de 4.5:1 o más sobre el fondo (lo comprueba test_interfaz). El fondo
+# es negro puro para que se confunda con los bordes negros de la pantalla; por
+# eso las líneas de barrido son del mismo color (no se dibujan).
+#
+# Regla única, igual en la ventana y en las imágenes del protector:
+# * tablas con posiciones: 1º ORO, 2º PLATA, 3º BRONCE y del 4º en adelante
+#   RESTO, en la posición y en el nombre del jugador;
+# * puntos siempre PUNTOS (blanco); nombre de juego siempre JUEGO (celeste);
+# * últimos récords: jugador RESTO, fecha FECHA, juego JUEGO y puntos PUNTOS.
 BG = "#000000"        # fondo
 SCANLINE = BG         # líneas de barrido: desactivadas sobre negro puro
-CARD = "#1e1c35"      # banda detrás del primer puesto
 FRAME = "#4c1d95"     # bordes y sombra del título
 TITLE = "#f43f5e"     # título (rosa neón)
 SUBTITLE = "#a78bfa"  # subtítulo (violeta)
-HEADER = "#3de8ff"    # encabezados de columna (cian)
-HEADER_DIM = "#5b9fb0"  # línea de estado (cian apagado, contraste 5:1)
-TEXT = "#e2e8f0"      # texto normal
-DIM = "#94a3b8"       # texto secundario y entradas de fábrica
-ALERT = "#f43f5e"
-GOOD = "#22c55e"      # puntajes y titulares
-RANK_COLORS = ("#facc15", "#cbd5e1", "#fb923c")  # oro, plata, bronce
+HEADER = "#3de8ff"    # encabezados de columna (celeste)
+HEADER_DIM = "#5b9fb0"  # línea de estado (celeste apagado)
+ORO = "#facc15"       # 1º puesto
+PLATA = "#dbe7f5"     # 2º puesto (gris azulado brillante, se distingue del resto)
+BRONCE = "#fb923c"    # 3º puesto
+RESTO = "#a8a8a8"     # del 4º en adelante y jugadores de últimos récords (gris claro)
+PUNTOS = "#ffffff"    # puntos, en todas las pantallas
+JUEGO = HEADER        # nombre de juego, en todas las pantallas (celeste)
+FECHA = "#808080"     # fechas (gris más apagado que RESTO)
+DIM = FECHA           # texto secundario: notas, pie, mensajes y filas ??? sin nombre
+PODIUM = (ORO, PLATA, BRONCE)
 
 ROWS_PER_PAGE = 10
 
@@ -54,7 +63,6 @@ class Screen:
     notes: List[Cell] = field(default_factory=list)
     empty_message: str = ""
     page: str = ""
-    highlight_first: bool = True
     status: str = ""  # línea de estado: juegos registrados y último escaneo
 
 
@@ -64,7 +72,7 @@ def plural(count: int, singular: str, plural_form: str) -> str:
 
 
 def rank_color(position: int) -> str:
-    return RANK_COLORS[position - 1] if 1 <= position <= len(RANK_COLORS) else GOOD
+    return PODIUM[position - 1] if 1 <= position <= len(PODIUM) else RESTO
 
 
 def ordinal(position: int) -> str:
@@ -125,7 +133,7 @@ def ranking_screens(db: Database, players: Players, names: GameNames,
     ranking = player_ranking(db, players)
     rows = [
         [(ordinal(r.position), rank_color(r.position)), (r.initials, rank_color(r.position)),
-         (str(r.count), TEXT), (games_summary(sorted((names.name(g) for g in r.games), key=str.lower)), DIM)]
+         (str(r.count), PUNTOS), (games_summary(sorted((names.name(g) for g in r.games), key=str.lower)), JUEGO)]
         for r in ranking
     ]
     notes: List[Cell] = []
@@ -154,16 +162,16 @@ def records_screen(db: Database, players: Players, names: GameNames, limit: int 
             continue
         holders = UNNAMED if e["unnamed"] else ", ".join(e["new_holders"])
         rows.append([
-            (local_stamp(e["detected_utc"]), DIM),
-            (names.name(e["game"]), HEADER),
-            (e["new_top"], SUBTITLE),
-            (holders, DIM if e["unnamed"] else GOOD),
+            (local_stamp(e["detected_utc"]), FECHA),
+            (names.name(e["game"]), JUEGO),
+            (e["new_top"], PUNTOS),
+            (holders, DIM if e["unnamed"] else RESTO),
         ])
         if len(rows) == limit:
             break
     columns = (Column("FECHA", 11), Column("JUEGO", 13), Column("PUNTOS", 8, "right"), Column("JUGADOR", 7))
     return Screen("records", "ULTIMOS RECORDS", "RECORDS DETECTADOS", columns, rows, [],
-                  "TODAVIA NO HAY RECORDS", highlight_first=False)
+                  "TODAVIA NO HAY RECORDS")
 
 
 def game_screen(db: Database, game: str, players: Players, names: GameNames,
@@ -178,9 +186,7 @@ def game_screen(db: Database, game: str, players: Players, names: GameNames,
     if source is None or not source["current_observation_id"]:
         return None
     observation = db.observation(source["current_observation_id"])
-    top = observation["top_score_num"]
     rows = []
-    first_counts = False
     any_unnamed = False
     for e in db.entries(observation["id"]):
         if e["factory"]:
@@ -188,15 +194,13 @@ def game_screen(db: Database, game: str, players: Players, names: GameNames,
         name = entry_name(db, game, e)
         if name is None and not show_no_initials:
             continue
-        if not rows:
-            first_counts = name is not None and top is not None and e["score_num"] == top
         position = e["position"]
         if name is None:
             any_unnamed = True
             color, shown = DIM, UNNAMED
         else:
             color, shown = rank_color(position), players.name(name)
-        rows.append([(ordinal(position), color), (e["score_text"], color), (shown, color), ("", DIM)])
+        rows.append([(ordinal(position), color), (e["score_text"], PUNTOS), (shown, color), ("", DIM)])
         if len(rows) == ROWS_PER_PAGE:
             break
     if not rows:
@@ -206,8 +210,7 @@ def game_screen(db: Database, game: str, players: Players, names: GameNames,
         notes.append((f"{UNNAMED} SIN NOMBRE: NO SUMA AL RANKING", DIM))
     columns = (Column("POS", 4), Column("PUNTOS", 10, "right"), Column("JUGADOR", 13), Column("", 10))
     subtitle = names.detail(game) or "TABLA DEL JUEGO"  # año y fabricante, del DAT de FBNeo
-    return Screen(f"juego:{game}", names.name(game), subtitle, columns, rows, notes, "TABLA VACIA",
-                  highlight_first=first_counts)
+    return Screen(f"juego:{game}", names.name(game), subtitle, columns, rows, notes, "TABLA VACIA")
 
 
 def status_line(db: Database, count: int) -> str:
