@@ -255,11 +255,11 @@ def cmd_game(args, db: Database) -> int:
 def cmd_records(args, db: Database) -> int:
     events = recent_records(db, args.n, Players.load(Path(args.jugadores)))
     if not events:
-        print("Todavía no se registraron récords batidos (el primer escaneo es la línea base).")
+        print("Todavía no hay récords con titular.")
         return 0
     print_table(["Detectado", "Juego", "Anterior", "Nuevo", "Titular"], [
         [local_time(e["detected_utc"]), e["game"],
-         "juego nuevo" if e["previous_top"] is None
+         "línea base" if e["baseline"] else "juego nuevo" if e["previous_top"] is None
          else f"{e['previous_top']} ({', '.join(e['previous_holders']) or '-'})",
          e["new_top"], UNNAMED if e["unnamed"] else ", ".join(e["new_holders"])]
         for e in events

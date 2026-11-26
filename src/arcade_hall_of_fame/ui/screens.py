@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional, Sequence, Tuple
 
+from . import pixelfont as pf
 from ..names import GameNames
 from ..naming import UNNAMED, entry_name
 from ..players import Players
@@ -83,12 +84,48 @@ def local_stamp(utc_text: str) -> str:
         return utc_text
 
 
+GAMES_WIDTH = 19  # ancho de la columna JUEGOS del ranking
+GAMES_SHOWN = 2  # juegos que se nombran antes del "+N"
+
+
+def _shorten(name: str, width: int) -> str:
+    """Recorta un nombre a ``width`` caracteres, de preferencia en un espacio, terminando en punto."""
+    name = pf.normalize(name).strip()
+    if len(name) <= width:
+        return name
+    cut = name[:max(0, width - 1)]
+    space = cut.rfind(" ")
+    if space >= width // 2:
+        cut = cut[:space]
+    return cut.rstrip(" ,.:;-/") + "."
+
+
+def games_summary(games: Sequence[str], width: int = GAMES_WIDTH, shown: int = GAMES_SHOWN) -> str:
+    """Hasta ``shown`` nombres de juego y luego ``+N``, sin pasarse de ``width`` caracteres.
+
+    Si los nombres no entran completos se nombran menos juegos (sube el ``+N``);
+    si ni uno entra, se recorta ese nombre con prolijidad.
+    """
+    names = [pf.normalize(g).strip() for g in games]
+    if not names:
+        return ""
+    for count in range(min(shown, len(names)), 0, -1):
+        rest = len(names) - count
+        suffix = f" +{rest}" if rest else ""
+        text = ", ".join(names[:count])
+        if len(text) + len(suffix) <= width:
+            return text + suffix
+    rest = len(names) - 1
+    suffix = f" +{rest}" if rest else ""
+    return _shorten(names[0], width - len(suffix)) + suffix
+
+
 def ranking_screens(db: Database, players: Players, names: GameNames,
                     show_no_initials: bool = False) -> List[Screen]:
     ranking = player_ranking(db, players)
     rows = [
         [(ordinal(r.position), rank_color(r.position)), (r.initials, rank_color(r.position)),
-         (str(r.count), TEXT), (", ".join(names.name(g) for g in r.games), DIM)]
+         (str(r.count), TEXT), (games_summary(sorted((names.name(g) for g in r.games), key=str.lower)), DIM)]
         for r in ranking
     ]
     notes: List[Cell] = []
@@ -96,7 +133,8 @@ def ranking_screens(db: Database, players: Players, names: GameNames,
     if unnamed and show_no_initials:
         count = len(unnamed)
         notes.append((f"{plural(count, 'RECORD', 'RECORDS')} SIN NOMBRE ({UNNAMED}): NO SUMAN", DIM))
-    columns = (Column("POS", 4), Column("JUGADOR", 10), Column("PRIMEROS", 8, "right"), Column("JUEGOS", 16))
+    columns = (Column("POS", 3), Column("JUGADOR", 10), Column("RECORDS", 7, "right"),
+               Column("JUEGOS", GAMES_WIDTH))
     pages = _pages(rows)
     return [
         Screen("ranking", "SALON DE LA FAMA", "JUGADORES POR PRIMEROS PUESTOS", columns, page_rows, notes,
@@ -107,7 +145,8 @@ def ranking_screens(db: Database, players: Players, names: GameNames,
 
 def records_screen(db: Database, players: Players, names: GameNames, limit: int = ROWS_PER_PAGE,
                    show_no_initials: bool = False) -> Screen:
-    """Últimos récords. Los que no tienen nombre se ocultan (o se muestran como ???)."""
+    """Últimos récords, incluidos los de la línea base con titular (con la fecha en que
+    se detectaron). Los que no tienen nombre se ocultan (o se muestran como ???)."""
     rows = []
     # Se piden de más por si hay que saltear récords sin nombre.
     for e in recent_records(db, limit * 5, players):
@@ -123,8 +162,8 @@ def records_screen(db: Database, players: Players, names: GameNames, limit: int 
         if len(rows) == limit:
             break
     columns = (Column("FECHA", 11), Column("JUEGO", 13), Column("PUNTOS", 8, "right"), Column("JUGADOR", 7))
-    return Screen("records", "ULTIMOS RECORDS", "RECORDS BATIDOS DETECTADOS", columns, rows, [],
-                  "TODAVIA NO HAY RECORDS BATIDOS", highlight_first=False)
+    return Screen("records", "ULTIMOS RECORDS", "RECORDS DETECTADOS", columns, rows, [],
+                  "TODAVIA NO HAY RECORDS", highlight_first=False)
 
 
 def game_screen(db: Database, game: str, players: Players, names: GameNames,

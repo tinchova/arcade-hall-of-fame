@@ -36,7 +36,8 @@ from .ui.screens import Screen
 PREFIX = "hof-"
 MANIFEST = ".hof-protector.json"
 TEMP_SUFFIX = ".part"
-FORMAT_VERSION = 3  # 2: fondo negro, sin fábrica, nombres puestos a mano; 3: singular y opciones
+FORMAT_VERSION = 4  # 2: fondo negro, sin fábrica, nombres puestos a mano; 3: singular y opciones;
+# 4: columna RECORDS, JUEGOS con +N, bloque arriba y estado abajo, línea base en últimos récords
 PENDING_FILE = PREFIX + "pendientes.txt"
 
 

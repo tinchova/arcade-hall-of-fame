@@ -69,6 +69,36 @@ class LayoutTest(unittest.TestCase):
         self.assertIn("PRUEBA", texts)
         self.assertIn("3000", texts)
 
+    def test_titulo_y_tabla_fijos_arriba(self):
+        def first_y(ops, text):
+            return min(op[2] for op in ops if op[0] == "text" and op[3] == text)  # sin la sombra
+
+        few, many = layout(self.screen(1), 1280, 720), layout(self.screen(10), 1280, 720)
+        for text in ("TITULO LARGO DE", "SUB", "POS", "1."):  # no se mueven con la cantidad de filas
+            self.assertEqual(first_y(few, text), first_y(many, text), text)
+        line = pf.LINE * scale_for(1280, 720)
+        y0 = (720 - GRID_LINES * line) // 2
+        self.assertEqual(first_y(few, "TITULO LARGO DE"), y0 + line)  # bajo la línea superior
+        self.assertGreater(first_y(many, "10000"), first_y(many, "9000"))  # crece hacia abajo
+
+    def test_estado_pegado_a_la_linea_inferior(self):
+        def y_of(ops, text):
+            return next(op[2] for op in ops if op[0] == "text" and op[3] == text)
+
+        s = scale_for(1280, 720)
+        line = pf.LINE * s
+        y0 = (720 - GRID_LINES * line) // 2
+        border = max(2, s)
+        bottom = y0 + GRID_LINES * line - border  # borde superior de la línea violeta de abajo
+        screen = self.screen(1)
+        screen.page = ""
+        screen.status = "1 JUEGO  ULTIMO ESCANEO 26/11 10:00"
+        protector = layout(screen, 1280, 720)  # sin ayuda: el estado va justo encima de la línea
+        self.assertEqual(y_of(protector, screen.status), bottom - line)
+        window = layout(screen, 1280, 720, "AYUDA", "1/9")  # ventana: ayuda abajo y estado arriba
+        self.assertEqual(y_of(window, "AYUDA"), bottom - line)
+        self.assertEqual(y_of(window, screen.status), bottom - 2 * line)
+
     def test_pantalla_vacia_muestra_mensaje(self):
         texts = [op[3] for op in layout(self.screen(0), 1280, 720) if op[0] == "text"]
         self.assertIn("VACIO", texts)
@@ -107,6 +137,31 @@ class LayoutTest(unittest.TestCase):
         self.assertEqual(len(zlib.decompress(png[start:start + length])), (320 * 3 + 1) * 200)
 
 
+class GamesSummaryTest(unittest.TestCase):
+    def test_hasta_dos_juegos_y_mas_n(self):
+        from arcade_hall_of_fame.ui.screens import GAMES_WIDTH, games_summary
+
+        games = ["Bubble Bobble", "Galaga", "Pengo", "Dig Dug", "Frogger", "Xevious", "1942", "Bomb Jack",
+                 "Donkey Kong", "Ms. Pac-Man", "Mappy", "Qix"]
+        self.assertEqual(games_summary(games[:1]), "BUBBLE BOBBLE")
+        self.assertEqual(games_summary(["Galaga", "Pengo", "Qix"]), "GALAGA, PENGO +1")
+        self.assertEqual(games_summary(games[1:6]), "GALAGA, PENGO +3")
+        self.assertEqual(games_summary(games), "BUBBLE BOBBLE +11")  # los dos no entran: uno y +11
+        self.assertEqual(games_summary(games[1:]), "GALAGA, PENGO +9")
+        self.assertEqual(games_summary(games[:5], width=30), "BUBBLE BOBBLE, GALAGA +3")
+        self.assertEqual(games_summary([]), "")
+        long_name = "Teenage Mutant Ninja Turtles (World 4 Players)"
+        self.assertEqual(games_summary([long_name]), "TEENAGE MUTANT.")  # cortado en un espacio
+        self.assertEqual(games_summary([long_name, "Qix", "Mappy"]), "TEENAGE MUTANT. +2")
+        self.assertEqual(games_summary(["Supercalifragilisticoespialidoso"]), "SUPERCALIFRAGILIST.")
+        for count in (1, 3, 5, 12):
+            for names in (games[:count], [long_name] * count, [f"{long_name} {i}" for i in range(count)]):
+                text = games_summary(names)
+                self.assertLessEqual(len(text), GAMES_WIDTH, text)
+                if count > 1:
+                    self.assertRegex(text, r" \+\d+$")
+
+
 class ScreensTest(HistoryTestCase):
     def test_secuencia_y_contenido(self):
         for i in range(1, 7):
@@ -128,8 +183,11 @@ class ScreensTest(HistoryTestCase):
         by_key = {s.key: s for s in screens}
         self.assertNotIn("juego:demo", by_key)
         self.assertNotIn("juego:solotop", by_key)
-        self.assertEqual(by_key["records"].rows, [])
+        # la línea base con iniciales aparece en últimos récords; fábrica y sin nombre, no
+        self.assertEqual(sorted(r[1][0] for r in by_key["records"].rows), [f"juego{i}" for i in range(1, 7)])
         self.assertEqual(by_key["records"].columns[3].label, "JUGADOR")
+        self.assertEqual([c.label for c in ranking.columns], ["POS", "JUGADOR", "RECORDS", "JUEGOS"])
+        self.assertEqual(ranking.rows[0][3][0], "JUEGO1, JUEGO2 +4")
         shown = {s.key: s for s in build_screens(self.db, Players(), show_no_initials=True)}
         self.assertNotIn("juego:demo", shown)  # la fábrica no se muestra nunca
         self.assertEqual([c[0] for c in shown["juego:solotop"].rows[0][:3]], ["1.", "1400", "???"])
@@ -161,7 +219,7 @@ class ScreensTest(HistoryTestCase):
         self.assertEqual([[c[0] for c in row[:3]] for row in demo.rows], [["1.", "900", "XY"]])  # sin fábrica
         self.assertTrue(demo.highlight_first)
         self.assertNotIn("juego:solotop", screens)
-        self.assertEqual(screens["records"].rows, [])
+        self.assertEqual([[c[0] for c in row[1:]] for row in screens["records"].rows], [["demo", "900", "XY"]])
         shown = {s.key: s for s in build_screens(self.db, Players(), show_no_initials=True)}
         self.assertEqual([c[0] for c in shown["records"].rows[0][1:]], ["solotop", "1400", "???"])
         assign_name(self.db, "solotop", "NC", "2026-11-25T12:00:00+00:00")

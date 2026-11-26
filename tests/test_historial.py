@@ -112,6 +112,41 @@ class ScanTest(HistoryTestCase):
         self.assertEqual(events[0]["detected_utc"], "2026-11-25T10:04:00+00:00")  # 3 marcas por escaneo
         self.assertEqual([(r.initials, r.count) for r in player_ranking(self.db)], [("QZ", 1)])
 
+    def test_records_de_la_linea_base_con_titular(self):
+        from arcade_hall_of_fame.naming import assign_name
+
+        (self.db_dir / "juego2.xml").write_bytes(DEMO_BCD)
+        self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
+        self.write("democlon", demo_file(FACTORY))  # solo fábrica: no aparece
+        self.write("solotop", bytes([0x14, 0x00]))  # sin iniciales: no aparece hasta tener nombre
+        self.write("juego2", demo_file([(700, "AB"), (10, "CD"), (5, "EF")]))
+        self.scan()  # línea base
+        events = recent_records(self.db)
+        self.assertEqual([(e["game"], e["new_top"], e["new_holders"], e["baseline"]) for e in events],
+                         [("juego2", "700", ["AB"], True), ("demo", "900", ["XY"], True)])
+        demo_time = events[1]["detected_utc"]
+        self.assertEqual(demo_time, self.db.observation(self.db.source("demo")["current_observation_id"])["detected_utc"])
+        self.assertEqual(recent_records(self.db, include_baseline=False), [])
+        assign_name(self.db, "solotop", "NC", "2026-11-25T12:00:00+00:00")
+        assign_name(self.db, "juego2", "TCV", "2026-11-25T12:00:00+00:00")  # reemplaza las iniciales AB
+        events = {e["game"]: e for e in recent_records(self.db)}
+        self.assertEqual(events["solotop"]["new_holders"], ["NC"])
+        self.assertEqual(events["juego2"]["new_holders"], ["TCV"])  # el nombre puesto, no el original
+        players = Players.from_data({"jugadores": {"Tincho": ["TCV"]}})
+        self.assertEqual({e["game"]: e["new_holders"] for e in recent_records(self.db, players=players)}["juego2"],
+                         ["Tincho"])
+        # Otra tabla con el mismo récord: conserva la fecha en que se detectó por primera vez.
+        self.write("demo", demo_file([(900, "XY"), (600, "QZ"), (500, "AA")]))
+        self.scan()
+        self.assertEqual({e["game"]: e for e in recent_records(self.db)}["demo"]["detected_utc"], demo_time)
+        # Cuando se bate, queda el récord batido y no se repite el de la línea base.
+        self.write("demo", demo_file([(950, "QZ"), (900, "XY"), (600, "QZ")]))
+        self.scan()
+        demo = [e for e in recent_records(self.db) if e["game"] == "demo"]
+        self.assertEqual([(e["previous_top"], e["new_top"], e["baseline"]) for e in demo], [("900", "950", False)])
+        self.assertEqual(recent_records(self.db)[0]["game"], "demo")  # el más nuevo primero
+        self.assertEqual(len(recent_records(self.db, limit=2)), 2)
+
     def test_mejora_propia_genera_evento(self):
         self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
         self.scan()
@@ -172,7 +207,7 @@ class ScanTest(HistoryTestCase):
         self.write("juego2", demo_file([(700, "QZ"), (10, "AB"), (5, "CD")]))
         report = self.scan()
         self.assertEqual(sorted(report.records), [("juego2", None, "700", ["QZ"]), ("solotop", None, "1400", [])])
-        events = {e["game"]: e for e in recent_records(self.db)}
+        events = {e["game"]: e for e in recent_records(self.db, include_baseline=False)}
         self.assertEqual(set(events), {"juego2", "solotop"})
         self.assertEqual((events["solotop"]["previous_top"], events["solotop"]["unnamed"]), (None, True))
         self.assertFalse(events["juego2"]["unnamed"])
@@ -294,11 +329,11 @@ class ScanTest(HistoryTestCase):
         conn.close()
         db = Database(path)
         self.addCleanup(db.close)
-        events = recent_records(db)
+        events = recent_records(db, include_baseline=False)
         self.assertEqual([(e["game"], e["previous_top"], e["new_top"], e["unnamed"]) for e in events],
                          [("solotop", None, "1400", True)])
         Database(path).close()  # abrir otra vez no duplica
-        self.assertEqual(len(recent_records(db)), 1)
+        self.assertEqual(len(recent_records(db, include_baseline=False)), 1)
 
     def test_originales_intactos(self):
         self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
@@ -370,7 +405,9 @@ class CliTest(HistoryTestCase):
         self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
         self.write("solotop", bytes([0x14, 0x00]))
         self.assertIn("nuevos estados: 2", self.run_cli("escanear", str(self.saves)))
-        self.assertIn("primer escaneo es la línea base", self.run_cli("records"))
+        records = self.run_cli("records")
+        self.assertRegex(records, r"demo +línea base +900 +XY")  # la línea base con iniciales aparece
+        self.assertNotIn("solotop", records)  # sin nombre: no
         self.write("demo", demo_file([(950, "QZ"), (900, "XY"), (500, "AA")]))
         self.assertIn("Récord batido en demo: 900 -> 950 (QZ)", self.run_cli("escanear", str(self.saves)))
         ranking = self.run_cli("ranking")

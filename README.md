@@ -86,7 +86,7 @@ Objetivo: Python 3.11 o posterior. El núcleo también funciona con el Python 3.
        --hiscore-dat "$HOME/Documents/RetroArch/system/fbneo/hiscore.dat"
    python -m arcade_hall_of_fame ranking      # jugadores por cantidad de primeros puestos
    python -m arcade_hall_of_fame juego galaga # tabla vigente de un juego
-   python -m arcade_hall_of_fame records      # últimos récords batidos
+   python -m arcade_hall_of_fame records      # últimos récords
    python -m arcade_hall_of_fame aceptar <juego>  # aceptar un estado pendiente (máximo que bajó)
    python -m arcade_hall_of_fame pendientes   # récords que todavía no se pueden leer y récords sin nombre
    python -m arcade_hall_of_fame sin-nombre   # récords sin iniciales a los que falta ponerles nombre
@@ -153,9 +153,11 @@ El nombre queda en la base, asociado a esa puntuación exacta: desde ahí el jue
 
 Con `--mostrar-sin-iniciales` (o `ARCADE_HOF_MOSTRAR_SIN_INICIALES=1`), la pantalla y las imágenes muestran también los récords sin nombre, con el jugador como `???`. Está desactivada por defecto.
 
-El primer escaneo de todo es la línea base y no anuncia récords. Un juego que aparece después (un `.hi` nuevo, como la primera partida a un juego) sí cuenta su primer récord en "últimos récords", salvo que sea una entrada de fábrica; si no tiene nombre, se muestra solo con la opción anterior.
+El primer escaneo de todo es la línea base y no anuncia récords batidos. Un juego que aparece después (un `.hi` nuevo, como la primera partida a un juego) sí cuenta su primer récord en "últimos récords", salvo que sea una entrada de fábrica; si no tiene nombre, se muestra solo con la opción anterior.
 
-La pantalla y las imágenes usan fondo negro puro (`#000000`), para que se confundan con los bordes negros de la pantalla.
+"Últimos récords" también incluye los récords vigentes de la línea base que tienen titular (iniciales del juego o un nombre puesto con `nombrar`), con la fecha en que se detectó esa puntuación por primera vez y el nombre puesto, si lo hay, en lugar de las iniciales originales. Los de fábrica y los que no tienen nombre no aparecen. Cuando uno de esos récords se bate, queda el récord batido en su lugar. En `records` figuran como "línea base".
+
+La pantalla y las imágenes usan fondo negro puro (`#000000`), para que se confundan con los bordes negros de la pantalla. El título, el subtítulo y la tabla van fijos bajo la línea superior (si hay más filas, la tabla crece hacia abajo) y la línea de estado, pegada a la línea inferior: en las imágenes del protector va justo encima de esa línea y en la ventana, justo encima de la línea de ayuda. En el ranking, la columna RECORDS cuenta los primeros puestos y JUEGOS nombra hasta dos y agrega `+N` con los demás (por ejemplo, `GALAGA, PENGO +3`); si los nombres no entran en el ancho, se nombra uno solo, recortado con un punto si hace falta.
 
 ### Juegos que no se pueden leer
 

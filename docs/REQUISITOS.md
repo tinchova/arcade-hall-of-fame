@@ -18,7 +18,7 @@ La primera entrega funcional usará FinalBurn Neo como fuente, con Galaga como p
 | RF-04 | Generar clasificación por juego | Muestra posiciones, iniciales, puntuaciones y estado de actualización; datos desconocidos se señalan |
 | RF-05 | Generar clasificación general | Cuenta juegos con primer puesto vigente y propietario identificado; una persona cuenta como máximo una vez por juego |
 | RF-06 | Conservar historial en SQLite | Una importación válida guarda observación, tabla y cambios de récord de forma atómica |
-| RF-07 | Mostrar últimos récords batidos | Superaciones estrictas del máximo vigente y primer récord de un juego aparecido después de la línea base; incluye anterior, nuevo, jugador y fecha de detección |
+| RF-07 | Mostrar últimos récords | Superaciones estrictas del máximo vigente, primer récord de un juego aparecido después de la línea base y récords vigentes de la línea base con titular (no de fábrica, con iniciales o nombre puesto, con la fecha en que se detectaron); incluye anterior, nuevo, jugador y fecha de detección |
 | RF-08 | Actualizar sin duplicados | Releer el mismo estado consecutivo o reiniciar el proceso no duplica observaciones ni eventos |
 | RF-09 | Resistir errores de origen | Un archivo ausente, incompleto, inestable o incompatible no sustituye la última tabla válida |
 | RF-10 | Interfaz arcade a pantalla completa | Vistas general, por juego y últimos récords; navegación por teclado y salida accesible, sin ratón obligatorio |

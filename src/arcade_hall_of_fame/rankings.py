@@ -92,11 +92,16 @@ def _with_name(named, holders: List[str]) -> List[str]:
     return holders
 
 
-def recent_records(db: Database, limit: int = 10, players: Optional[Players] = None) -> List[Dict]:
-    """Últimos récords batidos (y primeros récords de juegos nuevos, sin anterior).
+def recent_records(db: Database, limit: int = 10, players: Optional[Players] = None,
+                   include_baseline: bool = True) -> List[Dict]:
+    """Últimos récords: batidos, primeros récords de juegos nuevos y, con
+    ``include_baseline``, los récords vigentes de la línea base que tienen titular.
 
-    Si el récord no tenía iniciales y después se le puso nombre, se muestra ese
-    nombre. ``unnamed`` indica que el nuevo récord sigue sin titular.
+    Si el récord no tenía iniciales (o se le cambiaron) y después se le puso
+    nombre, se muestra ese nombre. ``unnamed`` indica que el nuevo récord sigue
+    sin titular. Los de la línea base (``baseline``) llevan la fecha en que se
+    detectó por primera vez esa puntuación; los de fábrica y los que no tienen
+    nombre no se incluyen.
     """
     players = players or Players()
     result = []
@@ -114,5 +119,33 @@ def recent_records(db: Database, limit: int = 10, players: Optional[Players] = N
             "previous_holders": players.names(previous),
             "new_holders": players.names(new),
             "unnamed": not new,
+            "baseline": False,
+        })
+    if include_baseline:
+        result.extend(_baseline_records(db, players))
+        result.sort(key=lambda r: r["detected_utc"], reverse=True)
+    return result[:limit]
+
+
+def _baseline_records(db: Database, players: Players) -> List[Dict]:
+    """Récords vigentes con titular que no salieron de un récord batido (los de la línea base)."""
+    result = []
+    for leader in leaders(db, players):
+        if not leader.holders or leader.top_score is None:
+            continue
+        if db.has_event(leader.game, leader.top_score):
+            continue
+        first = db.first_seen_top(leader.game, leader.top_score)
+        if first is None:
+            continue
+        result.append({
+            "game": leader.game,
+            "detected_utc": first,
+            "previous_top": None,
+            "new_top": leader.top_score,
+            "previous_holders": [],
+            "new_holders": list(leader.holders),
+            "unnamed": False,
+            "baseline": True,
         })
     return result

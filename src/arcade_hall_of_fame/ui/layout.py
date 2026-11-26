@@ -48,7 +48,7 @@ def layout(screen: Screen, width: int, height: int, footer_left: str = "", foote
     ops.append(("rect", x0 - 2 * s, y0, content_w + 4 * s, border, FRAME))
     ops.append(("rect", x0 - 2 * s, y0 + GRID_LINES * line - border, content_w + 4 * s, border, FRAME))
 
-    # Bloque central (título, tabla y notas), centrado en vertical.
+    # Bloque de título, tabla y notas, fijo arriba: si hay más filas, crece hacia abajo.
     big = 2 * s
     title_lines = wrap(screen.title, GRID_COLS // 2)
     if len(title_lines) > 2:
@@ -58,11 +58,7 @@ def layout(screen: Screen, width: int, height: int, footer_left: str = "", foote
     title_h = len(title_lines) * (2 * line if title_scale == big else line)
     rows_h = max(len(screen.rows), 3) * line
     notes = screen.notes[:2]
-    block_h = title_h + line // 2 + line + line + line + line // 2 + rows_h + (line + len(notes) * line if notes else 0)
-    area_top = y0 + line
-    area_h = (GRID_LINES - 4) * line  # deja lugar para el estado y el pie
-    top = area_top + max(0, (area_h - block_h) // 2)
-
+    top = y0 + line
     y = top
     for text in title_lines:
         tx = (width - pf.text_width(text, title_scale)) // 2
@@ -109,13 +105,16 @@ def layout(screen: Screen, width: int, height: int, footer_left: str = "", foote
         t = pf.fit(text, GRID_COLS)
         _text(ops, (width - pf.text_width(t, s)) // 2, note_y, t, color, s)
         note_y += line
+    # Pie pegado a la línea inferior: la ayuda (si hay) en la última línea y el
+    # estado justo arriba; sin ayuda (imágenes del protector), el estado va abajo de todo.
     foot_y = y0 + GRID_LINES * line - line - border
+    left = pf.fit(footer_left, GRID_COLS - 8)
+    right = pf.fit(" ".join(p for p in (screen.page, footer_right) if p), 7)
     if screen.status:
         status = pf.fit(screen.status, GRID_COLS)
-        _text(ops, (width - pf.text_width(status, s)) // 2, foot_y - line - line // 2, status, HEADER_DIM, s)
-    left = pf.fit(footer_left, GRID_COLS - 8)
+        status_y = foot_y - line if left.strip() or right.strip() else foot_y
+        _text(ops, (width - pf.text_width(status, s)) // 2, status_y, status, HEADER_DIM, s)
     _text(ops, x0, foot_y, left, DIM, s)
-    right = pf.fit(" ".join(p for p in (screen.page, footer_right) if p), 7)
     _text(ops, x0 + content_w - pf.text_width(right, s), foot_y, right, DIM, s)
     return ops
 

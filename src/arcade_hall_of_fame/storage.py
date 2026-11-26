@@ -243,6 +243,20 @@ class Database:
             "SELECT * FROM record_events ORDER BY detected_utc DESC, id DESC LIMIT ?", (limit,)
         ).fetchall()
 
+    def has_event(self, game: str, top_text: str) -> bool:
+        """Hay un récord batido (o de juego nuevo) registrado con esa puntuación."""
+        return self.conn.execute(
+            "SELECT 1 FROM record_events WHERE game = ? AND new_top_text = ? LIMIT 1", (game, top_text)
+        ).fetchone() is not None
+
+    def first_seen_top(self, game: str, top_text: str) -> Optional[str]:
+        """Hora UTC de la primera tabla aceptada del juego con ese máximo, o None."""
+        row = self.conn.execute(
+            "SELECT MIN(detected_utc) FROM observations WHERE game = ? AND top_score_text = ? "
+            "AND status = 'aceptada'", (game, top_text)
+        ).fetchone()
+        return row[0] if row else None
+
     def unreadable(self) -> List[sqlite3.Row]:
         """Juegos con un ``.hi`` que no se puede leer, por nombre de juego."""
         return self.conn.execute("SELECT * FROM unreadable ORDER BY game").fetchall()
