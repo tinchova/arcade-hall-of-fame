@@ -104,12 +104,17 @@ class AliasTest(unittest.TestCase):
             return [[c[0] for c in row[:3]] for row in screen.rows], [row[2][1] for row in screen.rows]
 
         rows, colors = table()
-        self.assertEqual(rows, [["1.", "3000", "ANA"], ["3.", "1400", "TINCHOVA"]])  # 2000 sin nombre: oculto
-        self.assertEqual(colors, [sc.rank_color(1), sc.rank_color(3)])  # podio
+        # 2000 sin nombre: oculto, sin dejar hueco (TINCHOVA pasa a 2º, en plata)
+        self.assertEqual(rows, [["1.", "3000", "ANA"], ["2.", "1400", "TINCHOVA"]])
+        self.assertEqual(colors, [sc.rank_color(1), sc.rank_color(2)])
         rows, _ = table(show=True)
-        self.assertEqual([r[2] for r in rows], ["ANA", "???", "TINCHOVA"])
+        self.assertEqual(rows, [["1.", "3000", "ANA"], ["2.", "2000", "???"], ["3.", "1400", "TINCHOVA"]])
+        # En una tabla normal, la fila oculta tampoco deja hueco.
+        add_table(self.db, "galaga", [(500, "QQ"), (300, None), (200, "ZZ")])
+        screen = sc.game_screen(self.db, "galaga", players, sc.GameNames())
+        self.assertEqual([[c[0] for c in row[:3]] for row in screen.rows], [["1.", "500", "QQ"], ["2.", "200", "ZZ"]])
         # En el TOP GLOBAL suma solo el vigente.
-        self.assertEqual([(r.initials, r.count) for r in player_ranking(self.db, players)], [("ANA", 1)])
+        self.assertEqual([(r.initials, r.count) for r in player_ranking(self.db, players)], [("ANA", 1), ("QQ", 1)])
 
     def test_validacion_de_alias(self):
         self.assertEqual(clean_alias_initials(" tch "), "TCH")

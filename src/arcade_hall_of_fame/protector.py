@@ -40,7 +40,7 @@ PREFIX = "hof-"
 MANIFEST = ".hof-protector.json"
 TEMP_SUFFIX = ".part"
 FILLER_SECONDS = 10 * 60  # un sobrante se borra en la primera generación pasado este tiempo
-FORMAT_VERSION = 14  # 2: fondo negro, sin fábrica, nombres puestos a mano; 3: singular y opciones;
+FORMAT_VERSION = 15  # 2: fondo negro, sin fábrica, nombres puestos a mano; 3: singular y opciones;
 # 4: columna RECORDS, JUEGOS con +N, bloque arriba y estado abajo, línea base en últimos récords
 # 5: regla única de colores (podio, resto gris, puntos blancos, juego celeste), sin banda en la fila 1; 6: plata acerada; 7: subtítulo TOP GLOBAL
 # 8: filas del podio enteras en oro, plata y bronce; 9: alias de jugadores y columnas JUGADOR de 12
@@ -49,6 +49,7 @@ FORMAT_VERSION = 14  # 2: fondo negro, sin fábrica, nombres puestos a mano; 3: 
 # 12: nombres de archivo fijos por pantalla, sin número de orden
 # 13: la pantalla del QR solo si hay récords sin nombre, y los nombra
 # 14: juegos que guardan solo el máximo: los récords anteriores en la tabla del juego
+# 15: las filas ocultas sin nombre no dejan hueco: puestos renumerados
 PENDING_FILE = PREFIX + "pendientes.txt"
 
 

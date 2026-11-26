@@ -213,7 +213,11 @@ def game_screen(db: Database, game: str, players: Players, names: GameNames,
     renumeran sin ellas (el 1º es la mejor fila de jugador, aunque la fábrica
     tenga más puntos). Las filas sin iniciales se muestran con el nombre puesto
     a mano (``nombrar``); si no tienen, solo con ``show_no_initials`` y como
-    ``???`` (ocultas, igual ocupan su puesto).
+    ``???``. Si se ocultan, las filas visibles se renumeran sin hueco (como con
+    la fábrica): el podio es el de las filas que se ven.
+
+    En los juegos que guardan solo el máximo, debajo del vigente van los récords
+    anteriores (``naming.previous_rows``), como una tabla normal.
     """
     source = db.source(game)
     if source is None or not source["current_observation_id"]:
@@ -223,35 +227,24 @@ def game_screen(db: Database, game: str, players: Players, names: GameNames,
     any_unnamed = False
     entries = db.entries(observation["id"])
     shown_positions = visible_positions(entries)
-    for e in player_rows_of(entries):
-        name = entry_name(db, game, e)
+    # (puesto en la tabla sin fábrica, puntos, nombre) del vigente y, debajo, de los récords anteriores
+    table = [(shown_positions[e["position"]], e["score_text"], entry_name(db, game, e))
+             for e in player_rows_of(entries)]
+    table += [(r.position, r.score_text, r.name) for r in previous_rows(db, game)]
+    for position, score, name in table:
         if name is None and not show_no_initials:
-            continue
-        position = shown_positions[e["position"]]
+            continue  # oculta: no ocupa puesto
+        if not show_no_initials:
+            position = len(rows) + 1
         if name is None:
             any_unnamed = True
-            color, shown = DIM, UNNAMED
+            rows.append([(ordinal(position), DIM), (score, PUNTOS), (UNNAMED, DIM), ("", DIM)])
         else:
-            color, shown = rank_color(position), players.name(name)
-        podium = name is not None
-        rows.append([(ordinal(position), color),
-                     (e["score_text"], row_color(position, PUNTOS) if podium else PUNTOS),
-                     (shown, color), ("", row_color(position, DIM) if podium else DIM)])
+            color = rank_color(position)
+            rows.append([(ordinal(position), color), (score, row_color(position, PUNTOS)),
+                         (players.name(name), color), ("", row_color(position, DIM))])
         if len(rows) == ROWS_PER_PAGE:
             break
-    # Juegos que guardan solo el máximo: los que fueron rompiendo el récord, debajo del vigente.
-    for r in previous_rows(db, game):
-        if len(rows) == ROWS_PER_PAGE:
-            break
-        if r.name is None and not show_no_initials:
-            continue
-        if r.name is None:
-            any_unnamed = True
-            rows.append([(ordinal(r.position), DIM), (r.score_text, PUNTOS), (UNNAMED, DIM), ("", DIM)])
-        else:
-            color = rank_color(r.position)
-            rows.append([(ordinal(r.position), color), (r.score_text, row_color(r.position, PUNTOS)),
-                         (players.name(r.name), color), ("", row_color(r.position, DIM))])
     if not rows:
         return None
     notes: List[Cell] = []
