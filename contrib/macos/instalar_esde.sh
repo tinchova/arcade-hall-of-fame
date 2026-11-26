@@ -127,17 +127,31 @@ user_pref("toolkit.telemetry.reportingpolicy.firstRun", false);
 user_pref("browser.sessionstore.resume_from_crash", false);
 user_pref("browser.tabs.warnOnClose", false);
 user_pref("app.update.auto", false);
+user_pref("toolkit.telemetry.shutdownPingSender.enabled", false);
+user_pref("toolkit.telemetry.shutdownPingSender.enabledFirstSession", false);
+user_pref("toolkit.telemetry.enabled", false);
+user_pref("toolkit.telemetry.archive.enabled", false);
+user_pref("toolkit.telemetry.unified", false);
+user_pref("datareporting.healthreport.uploadEnabled", false);
+user_pref("datareporting.policy.dataSubmissionEnabled", false);
 PREFS
 TEMPORAL=""
-if ! curl -fsS -o /dev/null "\$URL" 2>/dev/null; then
-    "$REPO/hof" web --direccion 127.0.0.1 --puerto "$PUERTO" >/dev/null 2>&1 &
+if ! curl -fsS -m 3 -o /dev/null "\$URL" </dev/null >/dev/null 2>&1; then
+    "$REPO/hof" web --direccion 127.0.0.1 --puerto "$PUERTO" </dev/null >/dev/null 2>&1 &
     TEMPORAL=\$!
     sleep 2
 fi
-"$FIREFOX" --kiosk --no-remote --profile "\$PERFIL" "\$URL"
+# ES-DE lee la salida del comando hasta que se cierra: sin redirigir, un proceso
+# que Firefox deja vivo al salir (pingsender, crashhelper) la mantiene abierta y
+# ES-DE queda esperando. --no-remote con un perfil propio: no se mezcla con un
+# Firefox ya abierto con el perfil normal.
+"$FIREFOX" --kiosk --no-remote --profile "\$PERFIL" "\$URL" </dev/null >/dev/null 2>&1
 if [ -n "\$TEMPORAL" ]; then
     kill "\$TEMPORAL" 2>/dev/null || true
 fi
+# Al cerrar Firefox, macOS puede pasarle el foco a otra aplicación (otro Firefox,
+# el Finder): se lo devolvemos a ES-DE.
+open -a ES-DE >/dev/null 2>&1 || true
 EOF
 chmod +x "$ENTRADA"
 echo "Sistema \"Salón de la Fama\" agregado: $SISTEMAS"
