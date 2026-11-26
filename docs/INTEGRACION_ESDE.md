@@ -18,6 +18,29 @@
 
 Si la página web está instalada (`instalar_web.sh` reinstala el protector con `WEB_PUERTO=47474`), el protector agrega una imagen "PONER NOMBRES / ESCANEA CON EL CELULAR" con el QR de la dirección actual (`http://<IP>:47474/`) y, abajo, la dirección `.local` de la Mac. La IP se detecta en cada generación: si la Mac cambia de red, la imagen se regenera en el siguiente escaneo.
 
+## Apagar la pantalla sin uso
+
+Con ES-DE abierto, macOS nunca apaga la pantalla: ES-DE tiene la aserción `PreventUserIdleDisplaySleep` ("ES-DE using SDL_DisableScreenSaver", visible con `pmset -g assertions`), `coreaudiod` impide el reposo y en la iMac `pmset sleep` es 0. La pantalla queda encendida día y noche y la Mac se calienta.
+
+`contrib/macos/apagar_pantalla.sh` apaga **solo la pantalla** con `pmset displaysleepnow` (no necesita sudo) cuando pasan 30 minutos sin teclado ni mouse. La Mac no se suspende: la página web y Tailscale siguen respondiendo. Cualquier tecla o movimiento del mouse la vuelve a encender.
+
+- Lee el tiempo sin uso de `HIDIdleTime` (`ioreg -c IOHIDSystem`, en nanosegundos). Las aserciones de ES-DE no lo reinician; solo lo reinicia el uso real.
+- Apaga una vez por período sin uso: guarda la hora del apagado en `~/Library/Application Support/arcade-hall-of-fame/apagar_pantalla.estado` y no vuelve a apagar hasta que haya uso y pase otro período completo. Así, si la pantalla se enciende sin tocar nada, no se apaga cada minuto.
+- `--prueba` solo informa qué haría, sin apagar ni guardar nada: sirve para probar la lógica con un umbral corto (`contrib/macos/apagar_pantalla.sh --prueba 5`).
+- Joysticks: `HIDIdleTime` cuenta los eventos que macOS trata como teclado y mouse. Un encoder arcade que se presenta como teclado cuenta como uso. Un joystick USB genérico (página HID 1, uso 4 o 5, sin controlador) probablemente **no** lo reinicia, porque macOS no lo trata como actividad del usuario. En la iMac no se pudo comprobar: el 2026-11-26 no había ningún joystick USB conectado (solo el receptor Logitech de teclado y mouse) y ES-DE estaba configurado solo con teclado. Si se conecta uno, probar `--prueba 5` mientras se lo mueve: si los segundos sin uso no vuelven a cero, jugar más de 30 minutos solo con el joystick apagaría la pantalla (se enciende con una tecla o el mouse).
+
+Instalación (LaunchAgent `com.arcade-hall-of-fame.pantalla`, que corre el script cada 60 segundos):
+
+```sh
+~/arcade-hall-of-fame/contrib/macos/instalar_apagar_pantalla.sh
+# otro tiempo, en segundos:
+APAGAR_TRAS=3600 ~/arcade-hall-of-fame/contrib/macos/instalar_apagar_pantalla.sh
+# para quitarlo:
+~/arcade-hall-of-fame/contrib/macos/instalar_apagar_pantalla.sh --desinstalar
+```
+
+El registro (`~/Library/Logs/arcade-hall-of-fame-pantalla.log`) anota solo los apagados.
+
 ## Volver atrás en la iMac
 
 **Página web y sistema "Salón de la Fama"**, instalados en la iMac el 2026-11-26: LaunchAgent `com.arcade-hall-of-fame.web` (puerto 47474, `http://Arcade.local:47474/` o `http://192.168.1.10:47474/`), protector reinstalado con `WEB_PUERTO=47474` (imagen del QR) y el sistema en `~/ES-DE/custom_systems/es_systems.xml` con la entrada `~/ROMs/salondelafama/Poner nombres.sh`. Antes no existía ningún `es_systems.xml` propio (la carpeta `custom_systems` estaba vacía), así que no hubo nada que copiar; `es_settings.xml` no se tocó. Para que aparezca el sistema hay que reiniciar ES-DE.

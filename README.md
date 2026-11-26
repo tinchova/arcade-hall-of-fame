@@ -159,6 +159,10 @@ La página **no tiene cuentas ni contraseñas**: cualquiera conectado a la misma
 
 Toca solo `~/ES-DE/custom_systems/es_systems.xml` (antes deja una copia con la fecha, `es_systems.xml.bak-AAAAMMDD-HHMMSS`) y crea `~/ROMs/salondelafama/Poner nombres.sh`. No toca `es_settings.xml`. ES-DE lee los sistemas al arrancar: hay que cerrarlo y volver a abrirlo para que aparezca. Ver [INTEGRACION_ESDE.md](docs/INTEGRACION_ESDE.md#salón-de-la-fama-como-sistema-de-es-de).
 
+### Apagar la pantalla sin uso
+
+ES-DE no deja que macOS apague la pantalla. `contrib/macos/instalar_apagar_pantalla.sh` instala un LaunchAgent que, tras 30 minutos sin teclado ni mouse (`APAGAR_TRAS=segundos` para cambiarlo), apaga solo la pantalla con `pmset displaysleepnow`, sin suspender la Mac: la página y Tailscale siguen andando. Detalles y límites (joysticks) en [INTEGRACION_ESDE.md](docs/INTEGRACION_ESDE.md#apagar-la-pantalla-sin-uso).
+
 ## Uso actual
 
 Objetivo: Python 3.11 o posterior. El núcleo también funciona con el Python 3.8 que trae macOS Catalina, pero la pantalla necesita Tk 8.6: en la iMac se usa el Python 3.13 de python.org (`/Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13`). No tiene dependencias externas. Los comandos de esta sección se ejecutan desde la raíz del repositorio con `PYTHONPATH=src`; en la Mac es más simple el script `hof` (sección anterior), que funciona desde cualquier carpeta.

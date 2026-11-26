@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Plantilla del LaunchAgent que apaga la pantalla tras @SEGUNDOS@ segundos sin
+  uso (teclado, mouse). instalar_apagar_pantalla.sh reemplaza los
+  valores @...@ y la copia a ~/Library/LaunchAgents/. launchd corre el script
+  cada 60 segundos; solo apaga la pantalla, no suspende la Mac.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.arcade-hall-of-fame.pantalla</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>@SCRIPT@</string>
+        <string>@SEGUNDOS@</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StartInterval</key>
+    <integer>60</integer>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>StandardOutPath</key>
+    <string>@LOG@</string>
+
+    <key>StandardErrorPath</key>
+    <string>@LOG@</string>
+</dict>
+</plist>
