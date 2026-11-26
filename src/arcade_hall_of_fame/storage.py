@@ -21,7 +21,7 @@ import os
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 SCHEMA_VERSION = 5
 APP_NAME = "arcade-hall-of-fame"
@@ -298,6 +298,16 @@ class Database:
             if best is not None and best["score_text"] == top_text:
                 return row["detected_utc"]
         return None
+
+    def accepted_tops(self, game: str) -> List[Tuple[int, str, Any]]:
+        """(id, hora UTC, fila del récord sin la fábrica) de cada tabla aceptada del juego, de la más vieja a la más nueva."""
+        result = []
+        for row in self.conn.execute("SELECT id, detected_utc FROM observations WHERE game = ? AND "
+                                     "status = 'aceptada' ORDER BY detected_utc, id", (game,)).fetchall():
+            best = player_top(self.entries(row["id"]))
+            if best is not None:
+                result.append((row["id"], row["detected_utc"], best))
+        return result
 
     def current_top(self, game: str) -> Optional[sqlite3.Row]:
         """Fila del récord de la tabla vigente (sin contar la fábrica), o None."""

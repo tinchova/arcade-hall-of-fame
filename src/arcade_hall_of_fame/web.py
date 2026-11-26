@@ -62,7 +62,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 from .models import HighScoreError
 from .naming import (MAX_INITIALS, NamingError, assign_name, clean_initials, keeps_only_top, player_rows,
-                     remove_name)
+                     previous_records, previous_rows, remove_name)
 from .players import (MAX_ALIAS, MAX_ALIAS_INITIALS, AliasError, Players, check_printable, clean_alias_initials,
                       clean_alias_name)
 from .scanner import utc_now
@@ -327,7 +327,7 @@ def render_page(db: Database, names: Dict[str, str], file_players: Players, view
         out.append(_unreadable_html(unreadable, names))
     else:
         fresh = {(score, initials) for game, score, initials in new_rows if game == view}
-        out.append(_game_html(view, names.get(view, view), games[view], players, fresh,
+        out.append(_game_html(view, names.get(view, view), games[view] + previous_rows(db, view), players, fresh,
                               view in new_games, keeps_only_top(db, view)))
     out.append("</main></div><footer>Solo funciona dentro de la red de casa (o por Tailscale).</footer></body></html>")
     return "".join(out)
@@ -413,7 +413,11 @@ def _game_html(game: str, title: str, rows, players: Players, fresh: Set[Tuple[s
             details.append("nombre puesto" + (f"; el juego tenía {r.original}" if r.original else ""))
         if r.name and shown != r.name:
             details.append(f"alias de {r.name}")
-        fields = _hidden(juego=game, puesto=r.position, puntos=r.score_text)
+        if r.previous:  # récord anterior (juegos que guardan solo el máximo): se elige por la puntuación
+            fields = _hidden(juego=game, puntos=r.score_text, historial="1")
+            details.append(f"récord anterior, detectado el {_local(r.detected_utc)}: no suma al ranking")
+        else:
+            fields = _hidden(juego=game, puesto=r.position, puntos=r.score_text)
         remove = (f'<form method="post" action="/quitar">{fields}'
                   '<button type="submit" class="sec">Quitar nombre</button></form>') if r.assigned else ""
         is_new = (r.score_text, r.original or "") in fresh
@@ -550,11 +554,18 @@ class Handler(BaseHTTPRequestHandler):
                 if not game or len(game) > 64 or db.source(game) is None:
                     raise NamingError("ese juego no está registrado")
                 view = game
-                try:
-                    position = int(values.get("puesto", ""))
-                except ValueError:
-                    raise NamingError("falta el puesto de la fila") from None
-                if not score or len(score) > 32 or not 1 <= position <= 999:
+                if values.get("historial") == "1":  # récord anterior: se elige solo por la puntuación
+                    position = None
+                    if not any(r.score_text == score for r in previous_records(db, game)):
+                        raise NamingError("ese récord anterior no está en el historial del juego")
+                else:
+                    try:
+                        position = int(values.get("puesto", ""))
+                    except ValueError:
+                        raise NamingError("falta el puesto de la fila") from None
+                    if not 1 <= position <= 999:
+                        raise NamingError("faltan datos de la fila")
+                if not score or len(score) > 32:
                     raise NamingError("faltan datos de la fila")
                 if path == "/nombrar":
                     name = clean_initials(values.get("nombre", ""))

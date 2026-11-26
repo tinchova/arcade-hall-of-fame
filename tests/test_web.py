@@ -69,6 +69,48 @@ class AliasTest(unittest.TestCase):
         self.assertEqual([keeps_only_top(self.db, g) for g in ("pacman", "unafila", "galaga", "nohay")],
                          [True, False, False, False])
 
+    def test_records_anteriores_de_un_juego_que_guarda_solo_el_maximo(self):
+        from arcade_hall_of_fame.naming import previous_records, remove_name, unnamed_records
+
+        add_table(self.db, "pacman", [(1400, None)], "2026-11-01T10:00:00+00:00")
+        add_table(self.db, "pacman", [(2000, None)], "2026-11-02T10:00:00+00:00")
+        add_table(self.db, "pacman", [(3000, None)], "2026-11-03T10:00:00+00:00")
+        add_table(self.db, "galaga", [(500, "TCH")])
+        self.assertEqual([(r.score_text, r.detected_utc[:10], r.name) for r in previous_records(self.db, "pacman")],
+                         [("2000", "2026-11-02", None), ("1400", "2026-11-01", None)])
+        self.assertEqual(previous_records(self.db, "galaga"), [])
+        self.assertEqual([r.game for r in unnamed_records(self.db)], ["pacman"])  # el vigente, 3000
+        assign_name(self.db, "pacman", "ana", NOW, expected_score="1400")
+        self.assertEqual(previous_records(self.db, "pacman")[1].name, "ANA")
+        self.assertEqual([r.initials for r in player_ranking(self.db, load_players(None, self.db))], ["TCH"])
+        assign_name(self.db, "pacman", "BETO", NOW, expected_score="3000")  # el vigente
+        self.assertEqual(unnamed_records(self.db), [])  # el 2000 sin nombre no cuenta (no dispara el QR)
+        self.assertEqual([r.initials for r in player_ranking(self.db, load_players(None, self.db))], ["BETO", "TCH"])
+        self.assertEqual(remove_name(self.db, "pacman", "1400"), ("1400", None))
+        with self.assertRaises(NamingError):
+            assign_name(self.db, "galaga", "X", NOW, expected_score="400")
+
+    def test_tabla_del_juego_con_los_que_rompieron_el_record(self):
+        add_table(self.db, "pacman", [(1400, None)], "2026-11-01T10:00:00+00:00")
+        add_table(self.db, "pacman", [(2000, None)], "2026-11-02T10:00:00+00:00")
+        add_table(self.db, "pacman", [(3000, None)], "2026-11-03T10:00:00+00:00")
+        assign_name(self.db, "pacman", "ANA", NOW, expected_score="3000")
+        assign_name(self.db, "pacman", "TCH", NOW, expected_score="1400")
+        self.db.set_alias("TCH", "TINCHOVA", NOW)
+        players = load_players(None, self.db)
+
+        def table(show=False):
+            screen = sc.game_screen(self.db, "pacman", players, sc.GameNames(), show)
+            return [[c[0] for c in row[:3]] for row in screen.rows], [row[2][1] for row in screen.rows]
+
+        rows, colors = table()
+        self.assertEqual(rows, [["1.", "3000", "ANA"], ["3.", "1400", "TINCHOVA"]])  # 2000 sin nombre: oculto
+        self.assertEqual(colors, [sc.rank_color(1), sc.rank_color(3)])  # podio
+        rows, _ = table(show=True)
+        self.assertEqual([r[2] for r in rows], ["ANA", "???", "TINCHOVA"])
+        # En el TOP GLOBAL suma solo el vigente.
+        self.assertEqual([(r.initials, r.count) for r in player_ranking(self.db, players)], [("ANA", 1)])
+
     def test_validacion_de_alias(self):
         self.assertEqual(clean_alias_initials(" tch "), "TCH")
         self.assertEqual(clean_alias_name("  ana   maria "), "ANA MARIA")
@@ -193,6 +235,29 @@ class WebTest(unittest.TestCase):
         _, page = self.request("GET", "/?ver=pacman")
         self.assertIn('class="aviso"', page)  # una sola fila sin iniciales: solo guarda el máximo
         self.assertIn("las que no lo superan no quedan guardadas", page)
+        self.assertNotIn('name="historial"', page)  # todavía no hay récords anteriores
+
+    def test_records_anteriores_en_la_pagina(self):
+        db = self.db()
+        add_table(db, "pacman", [(2000, None)], "2026-11-20T10:00:00+00:00")  # supera al 1400
+        db.close()
+        _, page = self.request("GET", "/?ver=pacman")
+        self.assertIn('name="historial" value="1"', page)  # el anterior, en la misma tabla
+        self.assertIn("récord anterior, detectado el", page)
+        self.assertLess(page.index("2000"), page.index("1400"))
+        self.assertIn('name="puntos" value="1400"', page)
+        response, _ = self.request("POST", "/nombrar", {"juego": "pacman", "puntos": "1400", "historial": "1",
+                                                        "nombre": "ana"})
+        self.assertEqual(response.status, 303)
+        self.assertEqual(self.db().record_name("pacman", "1400")["initials"], "ANA")
+        _, page = self.request("GET", "/?ver=pacman")
+        self.assertIn("ANA", page)
+        response, _ = self.request("POST", "/nombrar", {"juego": "pacman", "puntos": "999", "historial": "1",
+                                                        "nombre": "ana"})
+        self.assertEqual(response.status, 400)
+        response, _ = self.request("POST", "/quitar", {"juego": "pacman", "puntos": "1400", "historial": "1"})
+        self.assertEqual(response.status, 303)
+        self.assertIsNone(self.db().record_name("pacman", "1400"))
         _, page = self.request("GET", "/?ver=sin-leer")
         self.assertIn("RARO TITULO", page)
         self.assertIn("sin definición en hi2txt-xml", page)

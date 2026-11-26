@@ -24,6 +24,13 @@ otra fila por puesto (``position``, el que se muestra, sin la fábrica) o por el
 (``current_name``). Límite: dos filas empatadas en puntos con iniciales
 originales distintas no se pueden renombrar (la clave es juego y puntuación).
 
+En los juegos que guardan solo el máximo (``keeps_only_top``), los récords
+anteriores ya superados quedan en el historial (``previous_records``) y también
+se pueden nombrar, eligiéndolos por su puntuación (``expected_score`` sin
+puesto ni nombre actual). Ese nombre se ve en la página y en últimos récords,
+pero no suma al ranking: el primer puesto es solo el récord vigente. En la tabla
+del juego van debajo del vigente (``previous_rows``), como una tabla normal.
+
 Este módulo no imprime ni lee argumentos: lo usan el comando ``nombrar``, la
 página web (``web.py``).
 ``player_rows`` da la lista para elegir, y ``assign_name`` recibe la
@@ -77,6 +84,18 @@ class TableRow:
     assigned: bool  # tiene un nombre puesto a mano
     top: bool  # es el récord del juego
     original_position: int = 0  # puesto en la tabla del juego, contando la fábrica
+    previous: bool = False  # récord anterior, ya superado, de un juego que guarda solo el máximo
+    detected_utc: str = ""  # en los récords anteriores, cuándo se detectó
+
+
+@dataclass(frozen=True)
+class PreviousRecord:
+    """Récord ya superado de un juego que guarda solo el máximo."""
+    game: str
+    score_text: str
+    detected_utc: str  # primera tabla aceptada con ese récord
+    observation_id: int
+    name: Optional[str]  # nombre puesto a mano, o None
 
 
 def has_initials(entry) -> bool:
@@ -178,6 +197,45 @@ def keeps_only_top(db: Database, game: str) -> bool:
     return len(entries) == 1 and not has_initials(entries[0])
 
 
+def previous_records(db: Database, game: str) -> List[PreviousRecord]:
+    """Récords anteriores, ya superados, de un juego que guarda solo el máximo (del mayor al menor).
+
+    Salen de las tablas aceptadas del historial. Para los demás juegos, vacío.
+    """
+    if not keeps_only_top(db, game):
+        return []
+    current = db.current_top(game)
+    seen = {}
+    for observation_id, detected, entry in db.accepted_tops(game):
+        if has_initials(entry) or entry["score_num"] is None or entry["score_num"] >= current["score_num"]:
+            continue
+        seen.setdefault(entry["score_text"], (entry["score_num"], detected, observation_id))
+    result = []
+    for score, (number, detected, observation_id) in sorted(seen.items(), key=lambda item: -item[1][0]):
+        stored = db.record_name(game, score)
+        result.append(PreviousRecord(game, score, detected, observation_id,
+                                     stored["initials"] if name_applies(stored, None) else None))
+    return result
+
+
+def previous_rows(db: Database, game: str) -> List[TableRow]:
+    """Los récords anteriores como filas de la tabla del juego, debajo del vigente (puestos 2, 3...)."""
+    return [TableRow(game, 1 + i, r.score_text, r.name, None, r.name is not None, False, previous=True,
+                     detected_utc=r.detected_utc)
+            for i, r in enumerate(previous_records(db, game), start=1)]
+
+
+def _previous(db: Database, game: str, position: Optional[int], current_name: Optional[str],
+              expected: Optional[str]) -> Optional[PreviousRecord]:
+    """El récord anterior elegido por puntuación (sin puesto ni nombre), si no es el vigente."""
+    if position is not None or current_name is not None or expected is None:
+        return None
+    current = db.current_top(game)
+    if current is not None and current["score_text"] == expected:
+        return None
+    return next((r for r in previous_records(db, game) if r.score_text == expected), None)
+
+
 def player_rows(db: Database, game: Optional[str] = None) -> List[TableRow]:
     """Todas las filas de jugadores (sin las de fábrica) de las tablas vigentes."""
     result = []
@@ -217,6 +275,10 @@ def select_row(db: Database, game: str, position: Optional[int] = None, current_
     coincide, falla.
     """
     expected = expected_score.strip() if expected_score is not None else None
+    previous = _previous(db, game, position, current_name, expected)
+    if previous is not None:  # récord anterior de un juego que guarda solo el máximo
+        return TableRow(game, 0, previous.score_text, previous.name, None, previous.name is not None, False,
+                        previous=True)
     if position is None and current_name is None:
         observation, entries, rows = _current_top(db, game)
         score = rows[0]["score_text"]
@@ -273,7 +335,8 @@ def assign_name(db: Database, game: str, initials: str, now: str, origin: str = 
     """
     value = clean_initials(initials)
     row = select_row(db, game, position, current_name, expected_score)
-    observation_id = db.source(game)["current_observation_id"]
+    previous = None if row.top or row.position else _previous(db, game, position, current_name, row.score_text)
+    observation_id = previous.observation_id if previous else db.source(game)["current_observation_id"]
     db.set_record_name(game, row.score_text, value, observation_id, now, origin, row.original)
     return row
 
@@ -285,7 +348,12 @@ def remove_name(db: Database, game: str, expected_score: Optional[str] = None, p
     Devuelve la puntuación y las iniciales originales (None si no tenía).
     """
     row = select_row(db, game, position, current_name, expected_score)
-    which = "el récord vigente" if position is None and current_name is None else f"el puesto {row.position}"
+    if not row.position:
+        which = "el récord anterior"
+    elif position is None and current_name is None:
+        which = "el récord vigente"
+    else:
+        which = f"el puesto {row.position}"
     stored = db.record_name(game, row.score_text)
     if stored is None or not db.delete_record_name(game, row.score_text):
         raise NamingError(f"{game}: {which} ({row.score_text}) no tiene nombre puesto")

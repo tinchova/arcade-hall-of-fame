@@ -541,6 +541,28 @@ class NamingTest(CliTest):
         self.assertIn("quedó otra vez sin nombre", self.run_cli("nombrar", "solotop", "--quitar"))
         self.db = Database(self.db_path)
 
+    def test_nombrar_un_record_anterior_de_un_juego_que_guarda_solo_el_maximo(self):
+        self.db.close()
+        self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
+        self.write("solotop", bytes([0x14, 0x00]))
+        self.run_cli("escanear", str(self.saves))
+        self.write("solotop", bytes([0x20, 0x00]))
+        self.run_cli("escanear", str(self.saves))
+        text = self.run_cli("nombrar", "solotop", "ana", "--puntos", "1400")
+        self.assertIn("el récord anterior 1400 (no suma al ranking) queda a nombre de ANA", text)
+        self.assertIn("1400 (ANA)", self.run_cli("records"))  # en últimos récords, con el nombre
+        self.assertIn("solotop  2000", self.run_cli("sin-nombre"))  # el vigente sigue sin nombre
+        db = Database(self.db_path)
+        self.assertEqual([(r.initials, r.count) for r in player_ranking(db)], [("XY", 1)])  # no suma
+        db.close()
+        # En un juego con tabla, --puntos sigue siendo solo la puntuación esperada del vigente.
+        self.assertIn("el récord vigente es 900, no 400", self.run_cli("nombrar", "demo", "NC", "--puntos", "400"))
+        self.assertIn("el récord vigente es 2000, no 77", self.run_cli("nombrar", "solotop", "NC", "--puntos", "77"))
+        self.assertIn("1400 quedó otra vez sin nombre", self.run_cli("nombrar", "solotop", "--quitar", "--puntos", "1400"))
+        self.assertIn("el récord anterior (1400) no tiene nombre puesto",
+                      self.run_cli("nombrar", "solotop", "--quitar", "--puntos", "1400"))
+        self.db = Database(self.db_path)
+
     def test_cambiar_las_iniciales_de_un_record(self):
         self.db.close()
         for name in ("juego1", "juego2"):

@@ -8,7 +8,7 @@ from typing import Any, List, Optional, Sequence, Tuple
 
 from . import pixelfont as pf
 from ..names import GameNames
-from ..naming import UNNAMED, entry_name
+from ..naming import UNNAMED, entry_name, previous_rows
 from ..players import Players, name_key
 from ..rankings import leaders, player_ranking, recent_records
 from ..storage import Database, player_rows_of, visible_positions
@@ -239,6 +239,19 @@ def game_screen(db: Database, game: str, players: Players, names: GameNames,
                      (shown, color), ("", row_color(position, DIM) if podium else DIM)])
         if len(rows) == ROWS_PER_PAGE:
             break
+    # Juegos que guardan solo el máximo: los que fueron rompiendo el récord, debajo del vigente.
+    for r in previous_rows(db, game):
+        if len(rows) == ROWS_PER_PAGE:
+            break
+        if r.name is None and not show_no_initials:
+            continue
+        if r.name is None:
+            any_unnamed = True
+            rows.append([(ordinal(r.position), DIM), (r.score_text, PUNTOS), (UNNAMED, DIM), ("", DIM)])
+        else:
+            color = rank_color(r.position)
+            rows.append([(ordinal(r.position), color), (r.score_text, row_color(r.position, PUNTOS)),
+                         (players.name(r.name), color), ("", row_color(r.position, DIM))])
     if not rows:
         return None
     notes: List[Cell] = []

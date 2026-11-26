@@ -178,7 +178,12 @@ def cmd_name(args, db: Database) -> int:
     record = assign_name(db, args.juego, args.iniciales, utc_now(), "comando", args.puntos, args.puesto, args.de)
     name = db.record_name(record.game, record.score_text)["initials"]
     change = f" (antes: {previous})" if previous and previous != name else ""
-    what = f"la fila del puesto {record.position} ({record.score_text})" if chosen else f"el récord {record.score_text}"
+    if not record.position:
+        what = f"el récord anterior {record.score_text} (no suma al ranking)"
+    elif chosen:
+        what = f"la fila del puesto {record.position} ({record.score_text})"
+    else:
+        what = f"el récord {record.score_text}"
     print(f"{record.game}: {what} queda a nombre de {name}{change}.")
     refresh_protector_after_naming(args, db)
     return 0
@@ -651,7 +656,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("juego")
     p.add_argument("iniciales", nargs="?")
     p.add_argument("--puntos", help="puntuación esperada: falla si el récord vigente es otro "
-                                    "(con --de, también sirve para elegir entre filas con el mismo nombre)")
+                                    "(con --de, también sirve para elegir entre filas con el mismo nombre; "
+                                    "en los juegos que guardan solo el máximo, elige un récord anterior)")
     p.add_argument("--de", metavar="NOMBRE",
                    help="cambiar la fila que hoy está a este nombre (iniciales del juego o nombre puesto)")
     p.add_argument("--puesto", type=int, metavar="N", help="cambiar la fila de este puesto de la tabla vigente")
