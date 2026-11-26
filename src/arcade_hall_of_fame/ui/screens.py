@@ -145,7 +145,7 @@ def ranking_screens(db: Database, players: Players, names: GameNames,
                Column("JUEGOS", GAMES_WIDTH))
     pages = _pages(rows)
     return [
-        Screen("ranking", "SALON DE LA FAMA", "JUGADORES POR PRIMEROS PUESTOS", columns, page_rows, notes,
+        Screen("ranking", "SALON DE LA FAMA", "TOP GLOBAL", columns, page_rows, notes,
                "TODAVIA NADIE TIENE UN PRIMER PUESTO", f"{i}/{len(pages)}" if len(pages) > 1 else "")
         for i, page_rows in enumerate(pages, start=1)
     ]
