@@ -24,7 +24,7 @@ El repositorio no incluye ROMs, BIOS, archivos del emulador, definiciones de ter
 
 ## Instalación en una iMac con macOS (Catalina o posterior)
 
-Requisitos: Git (en macOS viene con las herramientas de línea de comandos: `xcode-select --install`) y Python 3.13 del instalador oficial de [python.org](https://www.python.org/downloads/macos/), que incluye Tk 8.6. El Python que trae Catalina tiene un Tk 8.5 con fallas conocidas y no sirve para la pantalla. No hace falta instalar paquetes de Python.
+Requisitos: Git (en macOS viene con las herramientas de línea de comandos: `xcode-select --install`) y Python 3.13 del instalador oficial de [python.org](https://www.python.org/downloads/macos/), que incluye Tk 8.6. El Python que trae Catalina tiene un Tk 8.5 con fallas conocidas y no sirve para la pantalla. No hace falta instalar paquetes de Python para el proyecto, pero después de instalar Python hay que ejecutar una vez `Install Certificates.command` (en `/Applications/Python 3.13/`, doble clic o `sh "/Applications/Python 3.13/Install Certificates.command"`): sin eso las descargas del paso 3 fallan con `CERTIFICATE_VERIFY_FAILED`.
 
 ```sh
 # 1. Descargar el proyecto
@@ -40,7 +40,10 @@ export PYTHONPATH=src
 $PY -m arcade_hall_of_fame.hi2txt.fetch
 $PY -m arcade_hall_of_fame.fetch_names
 
-# 4. Abrir la pantalla (escanea las partidas de FBNeo de RetroArch; Esc para salir)
+# 4. Comprobar que todo funciona (pruebas automáticas, con datos sintéticos)
+$PY -m unittest
+
+# 5. Abrir la pantalla (escanea las partidas de FBNeo de RetroArch; Esc para salir)
 $PY -m arcade_hall_of_fame pantalla \
     --carpeta "$HOME/Documents/RetroArch/saves/FinalBurn Neo/fbneo" \
     --hiscore-dat "$HOME/Documents/RetroArch/system/fbneo/hiscore.dat"

@@ -1,6 +1,12 @@
 # Integración con ES-DE como protector de pantalla
 
-**Estado:** camino A elegido y preparado en el repositorio (comando `protector` y LaunchAgent). No está instalado en la iMac y la configuración de ES-DE no cambió: falta que el usuario confirme el cambio del protector de video a slideshow.
+**Estado:** camino A instalado en la iMac el 2026-11-25: LaunchAgent cargado e imágenes generadas en `~/Library/Application Support/arcade-hall-of-fame/protector`. La configuración de ES-DE se cambia desde su menú (ES-DE estaba abierto y pisa `es_settings.xml` al salir); hay una copia previa en `~/ES-DE/settings/es_settings.xml.bak-20261125-214536`.
+
+## Volver atrás en la iMac
+
+1. Quitar el LaunchAgent: `~/arcade-hall-of-fame/contrib/macos/instalar_protector.sh --desinstalar`.
+2. Restaurar la configuración de ES-DE **con ES-DE cerrado** (si está abierto, la pisa al salir): `cp -p ~/ES-DE/settings/es_settings.xml.bak-20261125-214536 ~/ES-DE/settings/es_settings.xml`. Alternativa sin cerrar ES-DE: en el menú, SCREENSAVER TYPE → VIDEO y USE CUSTOM IMAGES desactivado.
+3. Opcional: borrar la carpeta de imágenes `~/Library/Application Support/arcade-hall-of-fame/protector` y el registro `~/Library/Logs/arcade-hall-of-fame-protector.log`.
 
 ## Instalación (cuando el usuario lo confirme)
 
