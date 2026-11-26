@@ -22,6 +22,8 @@ import hashlib
 import json
 import os
 import re
+import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence
@@ -44,6 +46,7 @@ class ProtectorReport:
     written: List[str] = field(default_factory=list)
     unchanged: List[str] = field(default_factory=list)
     removed: List[str] = field(default_factory=list)
+    filled: List[str] = field(default_factory=list)  # sobrantes reescritos como relleno
 
 
 def data_state(db: Database, options) -> str:
@@ -115,43 +118,90 @@ def read_options(out_dir: Path) -> Optional[Dict]:
     return options if isinstance(options, dict) else None
 
 
+def boot_id() -> Optional[str]:
+    """Identifica el arranque actual del sistema (macOS y Linux); None si no se sabe."""
+    try:
+        if sys.platform == "darwin":
+            out = subprocess.run(["sysctl", "-n", "kern.boottime"], capture_output=True, text=True,
+                                 timeout=5, check=True).stdout
+            match = re.search(r"sec = (\d+)", out)
+            return match.group(1) if match else None
+        if sys.platform.startswith("linux"):
+            return Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii").strip() or None
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return None
+
+
 def generate(build: Callable[[], Sequence[Screen]], out_dir: Path, width: int, height: int,
-             state: str, options: Optional[Dict] = None) -> ProtectorReport:
+             state: str, options: Optional[Dict] = None, boot: Optional[str] = None,
+             compact: bool = False) -> ProtectorReport:
     """Actualiza la carpeta; ``build`` solo se llama si cambió ``state``.
 
     ``options`` se guarda en el manifiesto, para que otro comando (por ejemplo,
     ``nombrar``) pueda regenerar las imágenes con las mismas opciones.
+
+    ES-DE arma la lista de imágenes al activar su protector y rota sobre ella
+    mientras sigue activo; si una se borra, en su turno muestra negro. Por eso
+    las imágenes propias que sobran (menos pantallas o pantallas renumeradas)
+    no se borran: se reescriben como copia de la primera pantalla (el ranking)
+    y quedan anotadas como relleno en el manifiesto. Se borran solo al compactar:
+    con ``compact`` o en la primera generación después de un arranque del sistema
+    (``boot`` distinto del anotado), cuando ES-DE todavía no armó su lista.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = out_dir / MANIFEST
     manifest = _read_manifest(manifest_path)
     previous: Dict[str, str] = manifest.get("archivos", {}) if isinstance(manifest.get("archivos"), dict) else {}
+    fillers_before: Dict[str, str] = manifest.get("relleno", {}) if isinstance(manifest.get("relleno"), dict) else {}
+    compact = compact or (boot is not None and manifest.get("arranque") != boot)
     report = ProtectorReport()
     if (manifest.get("estado") == state and manifest.get("opciones") == options and previous
-            and all((out_dir / n).is_file() for n in previous)):
+            and all((out_dir / n).is_file() for n in list(previous) + list(fillers_before))
+            and not (compact and fillers_before)):
         report.skipped = True
+        if boot is not None and manifest.get("arranque") != boot:
+            manifest["arranque"] = boot
+            _write_manifest(manifest_path, manifest)
         return report
 
     screens = build()
     current: Dict[str, str] = {}
-    for name, screen in zip(file_names(screens), screens):
+    first_png: Optional[bytes] = None
+    first_digest = ""
+    for index, (name, screen) in enumerate(zip(file_names(screens), screens)):
         ops = layout(screen, width, height, "", "")
         digest = hashlib.sha256(repr((width, height, ops)).encode("utf-8")).hexdigest()
         current[name] = digest
         target = out_dir / name
-        if previous.get(name) == digest and target.is_file():
+        png = None
+        if previous.get(name) != digest or not target.is_file():
+            png = Raster(width, height).draw(ops).png()
+            _write_atomic(target, png)
+            report.written.append(name)
+        else:
             report.unchanged.append(name)
-            continue
-        _write_atomic(target, Raster(width, height).draw(ops).png())
-        report.written.append(name)
+        if index == 0:
+            first_digest = digest
+            first_png = png if png is not None else target.read_bytes()
 
-    for path in out_dir.iterdir():
+    fillers: Dict[str, str] = {}
+    for path in sorted(out_dir.iterdir()):
         own_png = path.name.startswith(PREFIX) and path.name.endswith(".png")
         leftover = path.name.startswith(PREFIX) and path.name.endswith(TEMP_SUFFIX)
-        if (own_png and path.name not in current) or leftover:
+        if leftover or (own_png and path.name not in current and (compact or first_png is None)):
             path.unlink()
             report.removed.append(path.name)
-    _write_atomic(manifest_path, json.dumps({"estado": state, "archivos": current, "opciones": options}, indent=1,
-                                            sort_keys=True).encode("utf-8"))
+        elif own_png and path.name not in current:
+            fillers[path.name] = first_digest
+            if fillers_before.get(path.name) != first_digest:
+                _write_atomic(path, first_png)
+                report.filled.append(path.name)
+    _write_manifest(manifest_path, {"estado": state, "archivos": current, "opciones": options,
+                                    "relleno": fillers, "arranque": boot})
     return report
+
+
+def _write_manifest(path: Path, manifest: Dict) -> None:
+    _write_atomic(path, json.dumps(manifest, indent=1, sort_keys=True).encode("utf-8"))

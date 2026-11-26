@@ -120,7 +120,7 @@ Objetivo: Python 3.11 o posterior. El núcleo también funciona con el Python 3.
        --carpeta "$HOME/Documents/RetroArch/saves/FinalBurn Neo/fbneo"
    ```
 
-   Si los datos no cambiaron desde la vez anterior, no reescribe nada. Junto a las imágenes deja `hof-pendientes.txt`, con los juegos cuyo récord todavía no se puede leer y los récords sin nombre. En macOS, `contrib/macos/instalar_protector.sh` lo deja funcionando con un LaunchAgent que se dispara cuando cambia la carpeta de partidas; ver [INTEGRACION_ESDE.md](docs/INTEGRACION_ESDE.md).
+   Si los datos no cambiaron desde la vez anterior, no reescribe nada. Las imágenes que sobran no se borran enseguida (ES-DE mostraría negro en su lugar): quedan como copia del ranking hasta el próximo arranque del sistema, o hasta `protector --compactar`. Junto a las imágenes deja `hof-pendientes.txt`, con los juegos cuyo récord todavía no se puede leer y los récords sin nombre. En macOS, `contrib/macos/instalar_protector.sh` lo deja funcionando con un LaunchAgent que se dispara cuando cambia la carpeta de partidas; ver [INTEGRACION_ESDE.md](docs/INTEGRACION_ESDE.md).
 
 7. Pruebas automáticas, con datos sintéticos:
 

@@ -2,6 +2,7 @@
 
 import contextlib
 import io
+import json
 import plistlib
 import shutil
 import subprocess
@@ -10,6 +11,7 @@ from pathlib import Path
 
 from arcade_hall_of_fame import cli
 from arcade_hall_of_fame.protector import MANIFEST, PENDING_FILE, file_names, generate
+from arcade_hall_of_fame.ui.screens import Screen
 
 from .test_historial import HistoryTestCase, demo_file
 
@@ -19,14 +21,14 @@ INSTALLER = REPO / "contrib" / "macos" / "instalar_protector.sh"
 
 
 class ProtectorTest(HistoryTestCase):
-    def run_protector(self) -> str:
+    def run_protector(self, *extra) -> str:
         self.db.close()
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             code = cli.main(["--base", str(self.db_path), "--definiciones", str(self.db_dir),
                              "--jugadores", str(self.players_path), "protector", "--salida", str(self.out),
                              "--carpeta", str(self.saves), "--tamano", "320x180",
-                             "--dat", str(self.out.parent / "sin-dat")])
+                             "--dat", str(self.out.parent / "sin-dat"), *extra])
         self.assertEqual(code, 0)
         from arcade_hall_of_fame.storage import Database
         self.db = Database(self.db_path)
@@ -56,10 +58,45 @@ class ProtectorTest(HistoryTestCase):
         (self.out / "hof-001-ranking.png.part").write_bytes(b"x")
         self.write("demo", demo_file([(950, "QZ"), (900, "XY"), (500, "AA")]))
         text = self.run_protector()
-        self.assertIn("1 borrada,", text)
+        # El sobrante no se borra (ES-DE puede tenerlo en su lista): queda como copia del ranking.
+        self.assertIn("0 borradas,", text)
+        self.assertIn("1 sobrante reescrita", text)
+        self.assertEqual(sorted(p.name for p in self.out.iterdir()),
+                         [MANIFEST, "ajeno.png", "hof-001-ranking.png", "hof-002-records.png",
+                          "hof-003-juego-demo.png", "hof-099-viejo.png", PENDING_FILE])
+        ranking = (self.out / "hof-001-ranking.png").read_bytes()
+        self.assertEqual((self.out / "hof-099-viejo.png").read_bytes(), ranking)
+        self.assertIn("hof-099-viejo.png", json.loads((self.out / MANIFEST).read_text(encoding="utf-8"))["relleno"])
+        self.assertIn("sin cambios en los datos", self.run_protector())
+        self.assertIn("1 borrada,", self.run_protector("--compactar"))
         self.assertEqual(sorted(p.name for p in self.out.iterdir()),
                          [MANIFEST, "ajeno.png", "hof-001-ranking.png", "hof-002-records.png",
                           "hof-003-juego-demo.png", PENDING_FILE])
+        self.assertEqual(json.loads((self.out / MANIFEST).read_text(encoding="utf-8"))["relleno"], {})
+
+    def test_relleno_hasta_el_proximo_arranque(self):
+        self.out.mkdir(parents=True)
+        screens = [Screen("ranking", "A", "", (), []), Screen("records", "B", "", (), []),
+                   Screen("juego:x", "C", "", (), [])]
+        generate(lambda: screens, self.out, 64, 36, "e1", boot="arranque-1")
+        report = generate(lambda: screens[:2], self.out, 64, 36, "e2", boot="arranque-1")
+        self.assertEqual((report.removed, report.filled), ([], ["hof-003-juego-x.png"]))
+        ranking = (self.out / "hof-001-ranking.png").read_bytes()
+        self.assertEqual((self.out / "hof-003-juego-x.png").read_bytes(), ranking)
+        # El ranking cambia: el relleno se actualiza con él.
+        screens[0] = Screen("ranking", "Z", "", (), [])
+        report = generate(lambda: screens[:2], self.out, 64, 36, "e3", boot="arranque-1")
+        self.assertEqual(report.filled, ["hof-003-juego-x.png"])
+        self.assertEqual((self.out / "hof-003-juego-x.png").read_bytes(), (self.out / "hof-001-ranking.png").read_bytes())
+        # Arranque nuevo: aunque los datos no cambiaron, se borra el relleno.
+        report = generate(lambda: screens[:2], self.out, 64, 36, "e3", boot="arranque-2")
+        self.assertEqual((report.skipped, report.removed), (False, ["hof-003-juego-x.png"]))
+        self.assertFalse((self.out / "hof-003-juego-x.png").exists())
+        # Sin relleno, un arranque nuevo sin cambios no reescribe nada, pero anota el arranque.
+        self.assertTrue(generate(lambda: screens[:2], self.out, 64, 36, "e3", boot="arranque-3").skipped)
+        self.assertEqual(json.loads((self.out / MANIFEST).read_text(encoding="utf-8"))["arranque"], "arranque-3")
+        report = generate(lambda: screens[1:2], self.out, 64, 36, "e4", boot="arranque-3")
+        self.assertEqual((report.removed, report.filled), ([], ["hof-001-ranking.png", "hof-002-records.png"]))  # renumeradas
 
     def test_imagen_borrada_se_regenera(self):
         self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
@@ -116,7 +153,9 @@ class ProtectorTest(HistoryTestCase):
         self.assertIn("No hay récords sin nombre", (self.out / PENDING_FILE).read_text(encoding="utf-8"))
         self.assertIn("sin cambios en los datos", self.run_protector())  # mismas opciones que el protector
         text = self.run_cli("nombrar", "solotop", "--quitar", "--protector", str(self.out))
-        self.assertNotIn("hof-004-juego-solotop.png", self.pngs())
+        self.assertIn("1 sobrante reescrita", text)  # sale de la rotación en el próximo arranque
+        self.assertEqual((self.out / "hof-004-juego-solotop.png").read_bytes(),
+                         (self.out / "hof-001-ranking.png").read_bytes())
         # Sin carpeta del protector, nombrar no crea nada.
         missing = self.out.parent / "no-existe"
         self.run_cli("nombrar", "solotop", "NC", "--protector", str(missing))

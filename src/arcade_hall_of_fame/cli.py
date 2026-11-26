@@ -369,7 +369,10 @@ def update_protector(args, db: Database) -> None:
     options = {"tamano": [width, height], "mostrar_sin_iniciales": bool(args.mostrar_sin_iniciales),
                "gamelist": args.gamelist, "dat": args.dat,
                "definiciones": str(Path(args.definiciones).resolve()), "jugadores": str(Path(args.jugadores).resolve())}
-    report = generate(lambda: build_screens_for_protector(args, db), Path(args.salida), width, height, state, options)
+    from .protector import boot_id
+
+    report = generate(lambda: build_screens_for_protector(args, db), Path(args.salida), width, height, state, options,
+                      boot_id(), getattr(args, "compactar", False))
     pending_text = "\n".join(pending_lines(db, mark_new=False) + [""] + unnamed_lines(db)) + "\n"
     if write_text_if_changed(Path(args.salida) / PENDING_FILE, pending_text):
         print(f"Protector: lista de récords sin leer y sin nombre actualizada ({PENDING_FILE})")
@@ -379,6 +382,9 @@ def update_protector(args, db: Database) -> None:
         print(f"Protector: {plural(len(report.written), 'imagen nueva o cambiada', 'imágenes nuevas o cambiadas')}, "
               f"{plural(len(report.unchanged), 'igual', 'iguales')}, "
               f"{plural(len(report.removed), 'borrada', 'borradas')}, en {args.salida}")
+        if report.filled:
+            print(f"Protector: {plural(len(report.filled), 'sobrante reescrita', 'sobrantes reescritas')} como "
+                  "copia del ranking (ES-DE puede estar mostrándolas); se borran en el próximo arranque")
 
 
 def build_screens_for_protector(args, db: Database):
@@ -449,6 +455,9 @@ def build_parser() -> argparse.ArgumentParser:
                    default=os.environ.get("ARCADE_HOF_MOSTRAR_SIN_INICIALES", "") in ("1", "si", "true"),
                    help="mostrar también los récords sin iniciales ni nombre, como ??? (ocultos por defecto)")
     p.add_argument("--tamano", type=parse_size, default=(1920, 1080), help="tamaño de las imágenes (1920x1080)")
+    p.add_argument("--compactar", action="store_true",
+                   help="borrar ya las imágenes sobrantes (por defecto se reescriben como relleno hasta el "
+                        "próximo arranque; usar con el protector de ES-DE cerrado)")
     p.set_defaults(func=cmd_protector)
     p = sub.add_parser("pendientes", help="juegos con un récord guardado que todavía no se puede leer")
     p.add_argument("--sin-marcar", action="store_true",
