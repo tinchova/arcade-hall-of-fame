@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..models import FormatError
+from ..models import FormatError, IncompatibleFile
 from .definition import Definition, Elt, Loop, Structure
 from .formats import Context, Value, is_true, render
 from .output import Result, build_result
@@ -201,17 +201,20 @@ def select_structure(definition: Definition, data: bytes, file_name: str,
         i for i, s in enumerate(definition.structures)
         if s.matches_file(file_name) and (not s.sizes or len(data) in s.sizes)
     ]
+    if not any(s.matches_file(file_name) for s in definition.structures):
+        files = ", ".join(sorted({s.file for s in definition.structures}))
+        raise IncompatibleFile(f"{definition.game}: la definición describe otro archivo ({files}), no {file_name}")
     if regions is not None:
         with_regions = [i for i in candidates if not definition.structures[i].regions
                         or tuple(regions) in definition.structures[i].regions]
         if not with_regions and candidates:
-            raise FormatError(
+            raise IncompatibleFile(
                 f"{definition.game}: las regiones de hiscore.dat no coinciden con la definición"
             )
         candidates = with_regions
     if not candidates:
         sizes = sorted({n for s in definition.structures if s.matches_file(file_name) for n in s.sizes})
-        raise FormatError(
+        raise IncompatibleFile(
             f"{definition.game}: {len(data)} bytes no coincide con ningún tamaño admitido {sizes}"
         )
     return candidates[0]

@@ -3,6 +3,11 @@
 Los archivos se abren solo en modo ``rb``. Cada ``.hi`` se lee dos veces y se
 comprueban tamaño y fecha de modificación antes y después, para descartar
 lecturas a medio escribir.
+
+Si el juego no se puede leer (no hay definición, usa operaciones no soportadas o
+el archivo no coincide con ella), no es un error pasajero: se anota en la base
+como récord sin leer, con el motivo y la fecha de modificación del archivo, y se
+lista con el comando ``pendientes``.
 """
 
 from __future__ import annotations
@@ -18,11 +23,41 @@ from . import __version__
 from .hi2txt import MAX_FILE_SIZE, DefinitionLibrary, decode
 from .hi2txt.defaults import FactoryTables
 from .hi2txt.formats import render, to_number
-from .models import FormatError, HighScoreError, SourceReadError
+from .models import (DefinitionError, FormatError, HighScoreError, IncompatibleFile, MissingDefinition,
+                     SourceReadError, UnsupportedDefinition)
 from .reader import read_source
 from .storage import Database
 
 LOWER_TOP_NOTE = "el máximo bajó: posible reinicio o restauración; no reemplaza la tabla vigente"
+
+REASON_NO_DEFINITION = "sin definición en hi2txt-xml"
+REASON_UNSUPPORTED = "definición con operaciones no soportadas"
+REASON_DEFINITION_ERROR = "definición con errores"
+REASON_INCOMPATIBLE = "el archivo no coincide con la definición"
+REASON_NOT_IN_HISCORE_DAT = "no figura en hiscore.dat"
+
+
+class NotInHiscoreDat(IncompatibleFile):
+    """El juego no tiene entrada en el hiscore.dat indicado."""
+
+
+def unreadable_reason(exc: HighScoreError) -> Optional[Tuple[str, str]]:
+    """(motivo, detalle) si el error indica que el juego no se puede leer; si no, None.
+
+    Los errores de acceso o de datos (archivo a medio escribir, tabla vacía...)
+    no cuentan: pueden resolverse solos en el próximo escaneo.
+    """
+    if isinstance(exc, MissingDefinition):
+        return REASON_NO_DEFINITION, ""
+    if isinstance(exc, UnsupportedDefinition):
+        return REASON_UNSUPPORTED, ", ".join(exc.features)
+    if isinstance(exc, NotInHiscoreDat):
+        return REASON_NOT_IN_HISCORE_DAT, ""
+    if isinstance(exc, IncompatibleFile):
+        return REASON_INCOMPATIBLE, str(exc)
+    if isinstance(exc, DefinitionError):
+        return REASON_DEFINITION_ERROR, str(exc)
+    return None
 
 
 def utc_now() -> str:
@@ -37,6 +72,9 @@ class ScanReport:
     pending: List[str] = field(default_factory=list)
     records: List[Tuple[str, str, str, List[str]]] = field(default_factory=list)
     errors: List[Tuple[str, str]] = field(default_factory=list)
+    # Juegos con récord guardado que no se puede leer: (juego, motivo).
+    unreadable: List[Tuple[str, str]] = field(default_factory=list)
+    new_unreadable: List[str] = field(default_factory=list)
 
 
 def read_stable(path: Path) -> bytes:
@@ -107,7 +145,9 @@ def scan(
         report.files += 1
         game = path.stem
         stamp = now()
+        mtime_utc = None
         try:
+            mtime_utc = datetime.fromtimestamp(os.stat(path).st_mtime, timezone.utc).isoformat(timespec="seconds")
             data = read_stable(path)
             file_hash = hashlib.sha256(data).hexdigest()
             source = db.source(game)
@@ -118,14 +158,20 @@ def scan(
             definition = library.load(game)
             game_regions = (regions or {}).get(game)
             if regions is not None and game_regions is None:
-                raise FormatError(f"{game}: no figura en hiscore.dat")
+                raise NotInHiscoreDat(f"{game}: no figura en hiscore.dat")
             result = decode(definition, data, file_name=path.name, regions=game_regions)
             rows = normalize_rows(result, factory.rows(game))
             if not rows:
                 raise FormatError(f"{game}: la tabla está vacía")
         except HighScoreError as exc:
             db.touch_source(game, path.name, stamp, str(exc))
-            report.errors.append((game, str(exc)))
+            reason = unreadable_reason(exc)
+            if reason is None or mtime_utc is None:
+                report.errors.append((game, str(exc)))
+            else:
+                if db.mark_unreadable(game, path.name, reason[0], reason[1], mtime_utc, stamp):
+                    report.new_unreadable.append(game)
+                report.unreadable.append((game, reason[0]))
             continue
         _record(db, game, path.name, file_hash, rows, stamp, definitions_revision, report)
     db.add_scan(started, now(), report.files, len(report.new_observations), len(report.unchanged), len(report.errors))
@@ -155,6 +201,7 @@ def _record(db: Database, game, file_name, file_hash, rows, stamp, revision, rep
             }
     db.add_observation(game, file_name, file_hash, stamp, rows, top_text, top_num, status, note,
                        make_current, event, __version__, revision)
+    db.clear_unreadable(game)
     report.new_observations.append(game)
     if status == "pendiente":
         report.pending.append(game)

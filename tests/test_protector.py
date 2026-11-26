@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 from arcade_hall_of_fame import cli
-from arcade_hall_of_fame.protector import MANIFEST, file_names, generate
+from arcade_hall_of_fame.protector import MANIFEST, PENDING_FILE, file_names, generate
 
 from .test_historial import HistoryTestCase, demo_file
 
@@ -59,7 +59,7 @@ class ProtectorTest(HistoryTestCase):
         self.assertIn("borradas", text)
         self.assertEqual(sorted(p.name for p in self.out.iterdir()),
                          [MANIFEST, "ajeno.png", "hof-001-ranking.png", "hof-002-records.png",
-                          "hof-003-juego-demo.png"])
+                          "hof-003-juego-demo.png", PENDING_FILE])
 
     def test_imagen_borrada_se_regenera(self):
         self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
@@ -83,6 +83,19 @@ class ProtectorTest(HistoryTestCase):
         report = generate(build, self.out, 64, 36, "estado-1")
         self.assertTrue(report.skipped)
         self.assertEqual(len(calls), 1)
+
+    def test_lista_de_records_sin_leer(self):
+        self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
+        self.assertIn("lista de récords sin leer actualizada", self.run_protector())
+        self.assertIn("No hay récords sin leer", (self.out / PENDING_FILE).read_text(encoding="utf-8"))
+        self.write("sinlectura", b"\x01\x02\x03")
+        self.assertIn("lista de récords sin leer actualizada", self.run_protector())
+        text = (self.out / PENDING_FILE).read_text(encoding="utf-8")
+        self.assertIn("sinlectura", text)
+        self.assertIn("sin definición", text)
+        self.assertNotIn("demo ", text)
+        self.assertNotIn("lista de récords", self.run_protector())  # sin cambios, no se reescribe
+        self.assertNotIn(PENDING_FILE, self.pngs())
 
     def test_nombres_de_archivo(self):
         from arcade_hall_of_fame.ui.screens import Screen

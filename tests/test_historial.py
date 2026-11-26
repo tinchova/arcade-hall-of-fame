@@ -3,6 +3,8 @@
 import contextlib
 import hashlib
 import io
+import os
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,11 +12,12 @@ from pathlib import Path
 from arcade_hall_of_fame import cli
 from arcade_hall_of_fame.hi2txt import DefinitionLibrary
 from arcade_hall_of_fame.hi2txt.defaults import FactoryTables
-from arcade_hall_of_fame.models import ConfigError, SourceReadError
+from arcade_hall_of_fame.models import ConfigError, FormatError, SourceReadError
 from arcade_hall_of_fame.players import Players
 from arcade_hall_of_fame.rankings import leaders, player_ranking, recent_records
-from arcade_hall_of_fame.scanner import scan
-from arcade_hall_of_fame.storage import Database
+from arcade_hall_of_fame.scanner import (REASON_INCOMPATIBLE, REASON_NO_DEFINITION, REASON_NOT_IN_HISCORE_DAT,
+                                         REASON_UNSUPPORTED, scan, unreadable_reason)
+from arcade_hall_of_fame.storage import SCHEMA, Database
 
 from .synthetic import DEMO_BCD, xml
 
@@ -159,22 +162,81 @@ class ScanTest(HistoryTestCase):
         leader = leaders(self.db)[0]
         self.assertEqual((leader.top_score, leader.holders, leader.reason), ("1400", (), "el juego no guarda iniciales"))
 
-    def test_errores_sin_duplicar_y_sin_tabla(self):
+    def test_no_legibles_sin_duplicar_y_sin_tabla(self):
         self.write("desconocido", b"\x00\x01")
         self.write("demo", b"\x00" * 5)  # tamaño incorrecto
-        for _ in range(2):
-            report = self.scan()
-            self.assertEqual(sorted(g for g, _ in report.errors), ["demo", "desconocido"])
+        report = self.scan()
+        self.assertEqual(report.errors, [])
+        self.assertEqual(sorted(report.unreadable),
+                         [("demo", REASON_INCOMPATIBLE), ("desconocido", REASON_NO_DEFINITION)])
+        self.assertEqual(report.new_unreadable, ["demo", "desconocido"])
+        report = self.scan()
+        self.assertEqual(report.new_unreadable, [])
+        self.assertEqual(len(report.unreadable), 2)
         self.assertEqual(self.count("observations"), 0)
+        self.assertEqual(self.count("unreadable"), 2)
         self.assertIn("no hay definición", self.db.source("desconocido")["last_error"])
         self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
         self.assertEqual(self.scan().new_observations, ["demo"])
         self.assertIsNone(self.db.source("demo")["last_error"])
+        self.assertEqual([r["game"] for r in self.db.unreadable()], ["desconocido"])
+
+    def test_no_legible_registra_aparicion_y_modificacion(self):
+        path = self.saves / "sinlectura.hi"
+        self.write("sinlectura", b"\x01\x02\x03")
+        os.utime(path, (1_790_000_000, 1_790_000_000))
+        self.scan()
+        row = self.db.unreadable()[0]
+        self.assertEqual((row["game"], row["reason"], row["detail"]), ("sinlectura", REASON_NO_DEFINITION, ""))
+        first_seen = row["first_seen_utc"]
+        self.assertEqual(row["file_mtime_utc"], "2026-09-21T14:13:20+00:00")
+        self.assertIsNone(row["file_changed_utc"])
+        self.scan()
+        self.assertIsNone(self.db.unreadable()[0]["file_changed_utc"])
+        os.utime(path, (1_790_000_600, 1_790_000_600))
+        self.scan()
+        row = self.db.unreadable()[0]
+        self.assertEqual(row["first_seen_utc"], first_seen)
+        self.assertEqual(row["file_mtime_utc"], "2026-09-21T14:23:20+00:00")
+        self.assertGreater(row["file_changed_utc"], first_seen)
+        self.assertEqual(path.read_bytes(), b"\x01\x02\x03")
+
+    def test_motivos_de_no_lectura(self):
+        (self.db_dir / "pendiente.xml").write_bytes(xml("""
+  <structure file=".hi"><elt size="2" type="int" id="SCORE" base="256"/></structure>
+  <output><table><column id="SCORE"/></table></output>"""))
+        (self.db_dir / "otroarchivo.xml").write_bytes(xml("""
+  <structure file="nvram"><elt size="2" type="int" id="SCORE"/></structure>
+  <output><table><column id="SCORE"/></table></output>"""))
+        self.write("pendiente", b"\x00\x01")
+        self.write("otroarchivo", b"\x00\x01")
+        self.scan()
+        reasons = {r["game"]: (r["reason"], r["detail"]) for r in self.db.unreadable()}
+        self.assertEqual(reasons["pendiente"][0], REASON_UNSUPPORTED)
+        self.assertIn("base", reasons["pendiente"][1])
+        self.assertEqual(reasons["otroarchivo"][0], REASON_INCOMPATIBLE)
+        self.assertIn("otro archivo", reasons["otroarchivo"][1])
+        # Un error de lectura o de datos no es "no legible": puede resolverse solo.
+        self.assertIsNone(unreadable_reason(FormatError("demo: la tabla está vacía")))
+        self.assertIsNone(unreadable_reason(SourceReadError("cambió durante la lectura")))
 
     def test_regiones_de_hiscore_dat(self):
         self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
         report = self.scan(regions={})
-        self.assertIn("no figura en hiscore.dat", report.errors[0][1])
+        self.assertEqual(report.unreadable, [("demo", REASON_NOT_IN_HISCORE_DAT)])
+        self.assertIn("no figura en hiscore.dat", self.db.source("demo")["last_error"])
+
+    def test_base_de_la_version_1_se_actualiza(self):
+        path = Path(self.db_path).with_name("v1.sqlite3")
+        conn = sqlite3.connect(str(path))
+        conn.executescript(SCHEMA)
+        conn.execute("PRAGMA user_version = 1")
+        conn.commit()
+        conn.close()
+        db = Database(path)
+        self.addCleanup(db.close)
+        self.assertEqual(db.unreadable(), [])
+        self.assertEqual(db.conn.execute("PRAGMA user_version").fetchone()[0], 2)
 
     def test_originales_intactos(self):
         self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
@@ -261,6 +323,25 @@ class CliTest(HistoryTestCase):
         self.players_path.write_text('{"jugadores": {"Quique": ["QZ"]}}', encoding="utf-8")
         self.assertIn("Quique", self.run_cli("ranking"))
         self.assertIn("Quique", self.run_cli("records"))
+        self.db = Database(self.db_path)
+
+    def test_pendientes(self):
+        self.db.close()
+        self.assertIn("No hay récords sin leer", self.run_cli("pendientes"))
+        self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
+        self.write("sinlectura", b"\x01\x02\x03")
+        self.assertIn("Récords que no se pueden leer: 1, 1 nuevos", self.run_cli("escanear", str(self.saves)))
+        text = self.run_cli("pendientes", "--sin-marcar")
+        self.assertIn("NUEVO  sinlectura", text)
+        self.assertIn(REASON_NO_DEFINITION, text)
+        self.assertNotIn("demo", text)
+        self.assertIn("NUEVO  sinlectura", self.run_cli("pendientes"))  # el anterior no marcó
+        self.assertNotIn("NUEVO  sinlectura", self.run_cli("pendientes"))
+        path = self.saves / "sinlectura.hi"
+        stat = path.stat()
+        os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 60_000_000_000))
+        self.run_cli("escanear", str(self.saves))
+        self.assertIn("CAMBIÓ  sinlectura", self.run_cli("pendientes"))
         self.db = Database(self.db_path)
 
 

@@ -15,6 +15,10 @@ class DefinitionError(HighScoreError):
     """La definición de un juego falta, está mal formada o es incoherente."""
 
 
+class MissingDefinition(DefinitionError):
+    """No hay definición para el juego (ni propia ni por ``sameas``)."""
+
+
 class UnsupportedDefinition(DefinitionError):
     """La definición usa operaciones que el intérprete todavía no implementa.
 
@@ -33,6 +37,14 @@ class UnsupportedDefinition(DefinitionError):
 
 class FormatError(HighScoreError):
     """Los bytes no se pueden interpretar con la definición elegida."""
+
+
+class IncompatibleFile(FormatError):
+    """El archivo no corresponde a lo que describe la definición.
+
+    Tamaño, regiones de memoria o tipo de archivo distintos: el problema es de la
+    definición para este emulador, no de una lectura puntual.
+    """
 
 
 class ConfigError(HighScoreError):

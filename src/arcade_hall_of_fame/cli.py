@@ -7,6 +7,7 @@ Uso, desde la raíz del repositorio::
     python -m arcade_hall_of_fame juego galaga
     python -m arcade_hall_of_fame records [-n 10]
     python -m arcade_hall_of_fame aceptar <juego>
+    python -m arcade_hall_of_fame pendientes
     python -m arcade_hall_of_fame pantalla --carpeta "<carpeta de partidas>/fbneo"
     python -m arcade_hall_of_fame protector --salida <carpeta de imágenes> --carpeta "<partidas>/fbneo"
 
@@ -31,9 +32,9 @@ from .hi2txt.fetch import REVISION
 from .hi2txt.hiscore_dat import load_hiscore_dat
 from .models import HighScoreError
 from .rankings import leaders, player_ranking, recent_records
-from .scanner import scan
+from .scanner import scan, utc_now
 from .players import Players
-from .storage import Database, default_database, default_players_file
+from .storage import PENDING_SEEN_KEY, Database, default_database, default_players_file
 
 DEFAULT_DB_DIR = Path("local") / "hi2txt-xml" / REVISION / "src" / "main" / "db"
 
@@ -72,6 +73,48 @@ def cmd_scan(args, db: Database) -> int:
         print(f"  {game}: el máximo bajó; queda pendiente (ver 'aceptar')")
     for game, error in report.errors:
         print(f"  {game}: {error}")
+    if report.unreadable:
+        news = f", {len(report.new_unreadable)} nuevos" if report.new_unreadable else ""
+        print(f"  Récords que no se pueden leer: {len(report.unreadable)}{news} (ver 'pendientes')")
+    return 0
+
+
+def pending_lines(db: Database, mark_new: bool) -> List[str]:
+    """Texto de la lista de juegos con récords sin leer (también va al archivo del protector)."""
+    rows = db.unreadable()
+    if not rows:
+        return ["No hay récords sin leer: todos los .hi encontrados se pueden leer."]
+    lines = [f"Juegos con un récord guardado que todavía no se puede leer: {len(rows)}",
+             "Se sabe que alguien jugó y FBNeo guardó la tabla, pero no qué dice.",
+             "Para agregarlos, ver docs/COBERTURA_FBNEO.md, sección \"Agregar un juego nuevo\".", ""]
+    table = []
+    for r in rows:
+        mark = ""
+        if mark_new and r["seen_mtime_utc"] is None:
+            mark = "NUEVO"
+        elif mark_new and r["seen_mtime_utc"] != r["file_mtime_utc"]:
+            mark = "CAMBIÓ"
+        reason = r["reason"] + (f" ({r['detail']})" if r["detail"] else "")
+        table.append([mark, r["game"], local_time(r["first_seen_utc"]), local_time(r["file_mtime_utc"]), reason])
+    headers = ["", "Juego", "Apareció", "Última modificación", "Motivo"]
+    if not mark_new:
+        headers, table = headers[1:], [row[1:] for row in table]
+    widths = [max(len(str(x)) for x in [h] + [row[i] for row in table]) for i, h in enumerate(headers)]
+    lines.append("  ".join(h.ljust(w) for h, w in zip(headers, widths)).rstrip())
+    lines.append("  ".join("-" * w for w in widths))
+    lines.extend("  ".join(str(c).ljust(w) for c, w in zip(row, widths)).rstrip() for row in table)
+    return lines
+
+
+def cmd_pending(args, db: Database) -> int:
+    seen = db.setting(PENDING_SEEN_KEY)
+    lines = pending_lines(db, mark_new=True)
+    print("\n".join(lines))
+    if db.unreadable():
+        since = f"desde la consulta del {local_time(seen)}" if seen else "(primera consulta)"
+        print(f"\nNUEVO: apareció {since}; CAMBIÓ: el archivo se modificó desde entonces (otra partida).")
+    if not args.sin_marcar:
+        db.mark_unreadable_seen(utc_now())
     return 0
 
 
@@ -216,13 +259,16 @@ def cmd_screen(args, db: Database) -> int:
 
 def cmd_protector(args, db: Database) -> int:
     """Escanea y, solo si cambiaron los datos, actualiza los PNG del protector de pantalla."""
-    from .protector import data_state, generate
+    from .protector import PENDING_FILE, data_state, generate, write_text_if_changed
 
     if args.carpeta:
         make_scanner(args, db)()
     width, height = args.tamano
     state = data_state(db, (width, height, args.mostrar_sin_iniciales, args.gamelist, args.dat))
     report = generate(lambda: build_screens_for_protector(args, db), Path(args.salida), width, height, state)
+    pending_text = "\n".join(pending_lines(db, mark_new=False)) + "\n"
+    if write_text_if_changed(Path(args.salida) / PENDING_FILE, pending_text):
+        print(f"Protector: lista de récords sin leer actualizada ({PENDING_FILE})")
     if report.skipped:
         print(f"Protector: sin cambios en los datos; no se reescribió nada en {args.salida}")
     else:
@@ -298,6 +344,10 @@ def build_parser() -> argparse.ArgumentParser:
                    default=os.environ.get("ARCADE_HOF_MOSTRAR_SIN_INICIALES", "") in ("1", "si", "true"))
     p.add_argument("--tamano", type=parse_size, default=(1920, 1080), help="tamaño de las imágenes (1920x1080)")
     p.set_defaults(func=cmd_protector)
+    p = sub.add_parser("pendientes", help="juegos con un récord guardado que todavía no se puede leer")
+    p.add_argument("--sin-marcar", action="store_true",
+                   help="no dar por vistos los nuevos (la próxima vez se vuelven a destacar)")
+    p.set_defaults(func=cmd_pending)
     p = sub.add_parser("aceptar", help="aceptar un estado pendiente como nueva línea base")
     p.add_argument("nombre")
     p.set_defaults(func=cmd_accept)

@@ -2,6 +2,11 @@
 
 Una observación es una tabla leída de un ``.hi`` con contenido distinto al
 anterior de esa fuente. Releer un archivo sin cambios no agrega filas.
+
+Los ``.hi`` de juegos que el intérprete no puede leer (sin definición, con
+operaciones no soportadas, de otro tamaño...) se anotan en ``unreadable``: se
+sabe que hay un récord guardado, pero no cuál. No se guarda ningún dato de su
+contenido.
 """
 
 from __future__ import annotations
@@ -13,7 +18,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 APP_NAME = "arcade-hall-of-fame"
 
 SCHEMA = """
@@ -70,6 +75,27 @@ CREATE INDEX observations_game ON observations(game, id);
 CREATE INDEX record_events_time ON record_events(detected_utc, id);
 """
 
+# Agregado en la versión 2 (las bases de la versión 1 se actualizan solas).
+SCHEMA_V2 = """
+CREATE TABLE unreadable (
+    game TEXT PRIMARY KEY,
+    file_name TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    first_seen_utc TEXT NOT NULL,
+    last_seen_utc TEXT NOT NULL,
+    file_mtime_utc TEXT NOT NULL,
+    file_changed_utc TEXT,
+    seen_mtime_utc TEXT
+);
+CREATE TABLE settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+"""
+
+PENDING_SEEN_KEY = "pendientes_vistos_utc"
+
 
 def default_data_dir() -> Path:
     """Carpeta de datos del usuario según el sistema (fuera del repositorio)."""
@@ -101,7 +127,11 @@ class Database:
         version = self.conn.execute("PRAGMA user_version").fetchone()[0]
         if version == 0:
             with self.conn:
-                self.conn.executescript(SCHEMA)
+                self.conn.executescript(SCHEMA + SCHEMA_V2)
+                self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        elif version == 1:
+            with self.conn:
+                self.conn.executescript(SCHEMA_V2)
                 self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         elif version != SCHEMA_VERSION:
             raise RuntimeError(f"versión de base {version} no admitida (se espera {SCHEMA_VERSION})")
@@ -148,7 +178,57 @@ class Database:
             "SELECT * FROM record_events ORDER BY detected_utc DESC, id DESC LIMIT ?", (limit,)
         ).fetchall()
 
+    def unreadable(self) -> List[sqlite3.Row]:
+        """Juegos con un ``.hi`` que no se puede leer, por nombre de juego."""
+        return self.conn.execute("SELECT * FROM unreadable ORDER BY game").fetchall()
+
+    def setting(self, key: str) -> Optional[str]:
+        row = self.conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        return row[0] if row else None
+
     # --- Escrituras (cada una en su propia transacción) --------------------------
+
+    def mark_unreadable(self, game: str, file_name: str, reason: str, detail: str, mtime_utc: str,
+                        now: str) -> bool:
+        """Anota (o actualiza) un juego que no se puede leer. Devuelve True si es nuevo.
+
+        Si la fecha de modificación del archivo cambió desde la vez anterior, se
+        registra cuándo se notó (``file_changed_utc``): probablemente hubo otra partida.
+        """
+        with self.conn:
+            previous = self.conn.execute(
+                "SELECT file_mtime_utc FROM unreadable WHERE game = ?", (game,)
+            ).fetchone()
+            if previous is None:
+                self.conn.execute(
+                    "INSERT INTO unreadable (game, file_name, reason, detail, first_seen_utc, last_seen_utc, "
+                    "file_mtime_utc) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (game, file_name, reason, detail, now, now, mtime_utc),
+                )
+                return True
+            changed = ", file_changed_utc = ?" if previous[0] != mtime_utc else ""
+            params: list = [file_name, reason, detail, now, mtime_utc] + ([now] if changed else []) + [game]
+            self.conn.execute(
+                "UPDATE unreadable SET file_name = ?, reason = ?, detail = ?, last_seen_utc = ?, "
+                f"file_mtime_utc = ?{changed} WHERE game = ?",
+                params,
+            )
+            return False
+
+    def mark_unreadable_seen(self, now: str) -> None:
+        """Da por vista la lista actual: los nuevos y los modificados dejan de destacarse."""
+        with self.conn:
+            self.conn.execute("UPDATE unreadable SET seen_mtime_utc = file_mtime_utc")
+            self.conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (PENDING_SEEN_KEY, now),
+            )
+
+    def clear_unreadable(self, game: str) -> None:
+        with self.conn:
+            self.conn.execute("DELETE FROM unreadable WHERE game = ?", (game,))
+
 
     def touch_source(self, game: str, file_name: str, now: str, error: Optional[str]) -> None:
         with self.conn:

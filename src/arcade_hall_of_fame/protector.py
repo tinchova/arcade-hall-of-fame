@@ -10,6 +10,9 @@ Genera un PNG por pantalla en una carpeta. Para no trabajar de más:
 Cada archivo se escribe con un nombre temporal y se renombra al terminar, para
 que ES-DE nunca lea una imagen a medio escribir. Se borran las imágenes propias
 (``hof-*.png``) que ya no corresponden; los archivos ajenos no se tocan.
+
+Junto a las imágenes queda ``hof-pendientes.txt``, con los juegos que tienen un
+récord guardado que todavía no se puede leer (ver el comando ``pendientes``).
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ PREFIX = "hof-"
 MANIFEST = ".hof-protector.json"
 TEMP_SUFFIX = ".part"
 FORMAT_VERSION = 1
+PENDING_FILE = PREFIX + "pendientes.txt"
 
 
 @dataclass
@@ -76,6 +80,19 @@ def _write_atomic(path: Path, data: bytes) -> None:
         handle.flush()
         os.fsync(handle.fileno())
     os.replace(temp, path)
+
+
+def write_text_if_changed(path: Path, text: str) -> bool:
+    """Escribe ``text`` (UTF-8) solo si difiere del contenido actual. Devuelve True si escribió."""
+    data = text.encode("utf-8")
+    try:
+        if path.read_bytes() == data:
+            return False
+    except OSError:
+        pass
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_atomic(path, data)
+    return True
 
 
 def _read_manifest(path: Path) -> Dict:

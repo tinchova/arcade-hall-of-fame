@@ -16,7 +16,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..models import DefinitionError, UnsupportedDefinition
+from ..models import DefinitionError, MissingDefinition, UnsupportedDefinition
 from .formats import (
     SUPPORTED_OPERATIONS,
     FormatEngine,
@@ -640,7 +640,7 @@ class DefinitionLibrary:
                 data = path.read_bytes()
             except FileNotFoundError:
                 if current == game:
-                    raise DefinitionError(f"no hay definición para {game!r}") from None
+                    raise MissingDefinition(f"no hay definición para {game!r}") from None
                 raise DefinitionError(f"{game}: sameas apunta a {current!r}, que no existe") from None
             target = sameas_target(data)
             if target is None:
