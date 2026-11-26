@@ -436,8 +436,8 @@ def update_protector(args, db: Database) -> None:
         from .direccion import page_urls
 
         urls = page_urls(web_port)  # si cambia la IP (otra red), cambia el QR
-    state = data_state(db, (width, height, args.mostrar_sin_iniciales, args.gamelist, args.dat, args.jugadores,
-                            urls))
+    state = data_state(db, (width, height, args.mostrar_sin_iniciales, args.gamelist, args.dat,
+                            str(Path(args.jugadores).resolve()), urls))
     options = {"tamano": [width, height], "mostrar_sin_iniciales": bool(args.mostrar_sin_iniciales),
                "gamelist": args.gamelist, "dat": args.dat,
                "definiciones": str(Path(args.definiciones).resolve()), "jugadores": str(Path(args.jugadores).resolve()),
