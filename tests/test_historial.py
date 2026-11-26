@@ -17,7 +17,7 @@ from arcade_hall_of_fame.players import Players
 from arcade_hall_of_fame.rankings import leaders, player_ranking, recent_records
 from arcade_hall_of_fame.scanner import (REASON_INCOMPATIBLE, REASON_NO_DEFINITION, REASON_NOT_IN_HISCORE_DAT,
                                          REASON_UNSUPPORTED, scan, unreadable_reason)
-from arcade_hall_of_fame.storage import SCHEMA, Database
+from arcade_hall_of_fame.storage import SCHEMA, SCHEMA_VERSION, Database
 
 from .synthetic import DEMO_BCD, xml
 
@@ -336,7 +336,7 @@ class ScanTest(HistoryTestCase):
         db = Database(path)
         self.addCleanup(db.close)
         self.assertEqual(db.unreadable(), [])
-        self.assertEqual(db.conn.execute("PRAGMA user_version").fetchone()[0], 5)
+        self.assertEqual(db.conn.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
         self.assertEqual(db.record_names(), [])
 
     def test_base_de_la_version_3_conserva_los_nombres(self):

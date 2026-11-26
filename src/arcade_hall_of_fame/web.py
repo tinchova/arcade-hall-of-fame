@@ -35,8 +35,9 @@ para la red de casa y se protege así:
   del equipo (contra el "DNS rebinding");
 * en los envíos exige que ``Origin`` (o, si falta, ``Referer``) sea esta misma
   página: otra página abierta en el celular no puede enviar el formulario;
-* atiende solo ``GET /`` y los envíos ``POST /nombrar``, ``/quitar``, ``/alias``
-  y ``/alias/borrar``; el resto es 404. No sirve archivos ni muestra nada más;
+* atiende solo ``GET /`` y los envíos ``POST /nombrar``, ``/quitar``, ``/alias``,
+  ``/alias/borrar`` y ``/secreto`` (con frecuencia limitada); el resto es 404. No
+  sirve archivos ni muestra nada más;
 * valida todo lo recibido: tamaño y formato del cuerpo, juego existente, puesto
   y puntuación iguales a los de la tabla vigente, y textos de largo acotado sin
   caracteres de control.
@@ -51,10 +52,12 @@ import base64
 import hashlib
 import html
 import ipaddress
+import json
 import re
 import socket
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -68,7 +71,7 @@ from .naming import (MAX_INITIALS, NamingError, assign_name, clean_initials, kee
 from .players import (MAX_ALIAS, MAX_ALIAS_INITIALS, AliasError, Players, check_printable, clean_alias_initials,
                       clean_alias_name)
 from .scanner import utc_now
-from .storage import Database
+from .storage import EGG_DEVICES, Database
 
 DEFAULT_PORT = 47474
 MAX_BODY = 2048
@@ -257,79 +260,189 @@ footer{color:#787878;font-size:13px;padding:0 16px 20px;text-align:center}
 #titulo{cursor:default;-webkit-user-select:none;user-select:none;touch-action:manipulation;
   -webkit-tap-highlight-color:transparent}
 #egg{position:fixed;inset:0;z-index:99;background:#000;overflow:hidden;touch-action:none;
-  -webkit-user-select:none;user-select:none;cursor:crosshair}
-#egg .hud{position:absolute;top:10px;left:0;right:0;text-align:center;color:#3de8ff;font-size:18px;
-  pointer-events:none;z-index:2}
-#egg .lente{position:absolute;left:0;top:0;width:96px;height:52px;cursor:pointer}
-#egg .lente svg{width:100%;height:100%;display:block;pointer-events:none}
-#egg .px{position:absolute;width:10px;height:10px;background:#8b0016;pointer-events:none;
-  animation:egg-px .45s steps(4) forwards}
-#egg .px.b{background:#fff}
-@keyframes egg-px{to{transform:translate(var(--dx),var(--dy));opacity:0}}
-#egg .fin{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:18px;text-align:center;padding:16px;z-index:3;background:rgba(0,0,0,.72)}
-#egg .fin b{color:#f43f5e;font-size:clamp(30px,9vw,84px);text-shadow:4px 4px #4c1d95;letter-spacing:.06em}
-#egg .fin span{color:#facc15;font-size:22px}
-#egg .fin i{color:#787878;font-size:14px;font-style:normal}
+  -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+#egg canvas{position:absolute;left:0;top:0;width:100%;height:100%;display:block;cursor:crosshair}
+#egg .fin{position:absolute;inset:0;display:flex;padding:16px;overflow-y:auto;background:rgba(0,0,0,.8);
+  touch-action:pan-y}
+#egg .caja{margin:auto;display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center;max-width:100%}
+#egg .caja b{color:#f43f5e;font-size:clamp(30px,9vw,84px);text-shadow:4px 4px #4c1d95;letter-spacing:.06em}
+#egg .caja>span{color:#facc15;font-size:24px}
+#egg .caja i{color:#9e9e9e;font-size:14px;font-style:normal;min-height:1.2em}
+#egg form{justify-content:center;margin:0}
+#egg input.ini3{flex:0 0 auto;width:4.4em;font-size:36px;text-align:center;letter-spacing:.25em;padding:4px 0 4px .25em}
+#egg .top{list-style:none;margin:0;padding:10px 14px;border:3px solid #4c1d95;width:min(340px,100%)}
+#egg .top li{display:flex;gap:14px;padding:3px 6px;color:#3de8ff}
+#egg .top .p{color:#9e9e9e;min-width:2.2em;text-align:right}
+#egg .top .n{color:#facc15;flex:1;text-align:left}
+#egg .top li.yo{background:#1a0b33;outline:2px solid #f43f5e;color:#4ade80}
+#egg .top li.yo .n{color:#4ade80}
+#egg .top li.mas{color:#787878;justify-content:center}
+#egg .top li.tit{color:#a78bfa;justify-content:center;border-bottom:2px solid #2a1257;margin-bottom:4px}
+#egg .primero{display:flex;flex-direction:column;gap:8px;border:3px solid #4ade80;padding:12px 16px;color:#4ade80;font-size:22px}
+#egg .primero span+span{color:#facc15}
 """
 
 
-# Easter egg: 7 toques seguidos en el título abren un minijuego (lentes que caen).
-# Va inline y la CSP lo permite por su hash, no con 'unsafe-inline'.
+# Easter egg: 7 toques seguidos en el título abren un minijuego (atrapar 20 lentes que
+# caen, lo más rápido posible). Va inline y la CSP lo permite por su hash, no con
+# 'unsafe-inline'. Dibuja todo en un solo <canvas>; el tiempo se guarda con POST /secreto.
 EGG_JS = """(function(){
 var h=document.getElementById('titulo');if(!h)return;
-var taps=[],box=null,end=0,raf=0;
-var LENTE='<svg viewBox="0 0 120 64" aria-hidden="true"><path fill="#8b0016" d="M5 4L112 7Q120 8 119 16L117 30Q114 44 100 44L88 44Q77 44 73 35Q69 27 62 27Q55 27 51 35Q47 44 34 43L22 42Q10 41 8 30L5 17Q3 9 5 4Z"/><path d="M36 54L66 59" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>';
+var TOTAL=20,EN_PANTALLA=4,CORTE=180000;
+var taps=[],box=null,raf=0,medir=null;
+var LENTE='M5 4L112 7Q120 8 119 16L117 30Q114 44 100 44L88 44Q77 44 73 35Q69 27 62 27Q55 27 51 35Q47 44 34 43L22 42Q10 41 8 30L5 17Q3 9 5 4Z';
 h.addEventListener('click',function(){
   var t=Date.now();taps.push(t);taps=taps.filter(function(x){return t-x<3000;});
   if(taps.length>=7&&!box){taps=[];abrir();}
 });
 document.addEventListener('keydown',function(e){if(box&&e.key==='Escape'){e.preventDefault();cerrar();}});
+function seg(ms){return (ms/1000).toFixed(3);}
+function el(p,tag,txt,cls){var e=document.createElement(tag);e.textContent=txt;if(cls)e.className=cls;p.appendChild(e);return e;}
+function sprite(px){
+  var c=document.createElement('canvas'),k=px/120;c.width=px;c.height=Math.ceil(64*k);
+  var g=c.getContext('2d');g.scale(k,k);g.fillStyle='#8b0016';g.fill(new Path2D(LENTE));
+  g.strokeStyle='#fff';g.lineWidth=2;g.lineCap='round';g.beginPath();g.moveTo(36,54);g.lineTo(66,59);g.stroke();
+  return c;
+}
 function abrir(){
   box=document.createElement('div');box.id='egg';box.setAttribute('role','dialog');box.setAttribute('aria-label','Minijuego');
-  var hud=document.createElement('div');hud.className='hud';box.appendChild(hud);
-  document.body.appendChild(box);document.documentElement.style.overflow='hidden';
-  var lentes=[],puntos=0,t0=performance.now(),ult=t0-1000,prev=t0,fin=false;
-  function marcador(now){hud.textContent='LENTES '+puntos+'/20  \\u00b7  '+Math.max(0,Math.ceil(30-(now-t0)/1000))+'s';}
-  box.addEventListener('pointerdown',function(e){
-    e.preventDefault();
-    if(fin){if(Date.now()>end)cerrar();return;}
-    var el=e.target.closest&&e.target.closest('.lente');if(!el)return;
-    for(var i=0;i<lentes.length;i++)if(lentes[i].el===el){var l=lentes[i];lentes.splice(i,1);pop(l);puntos++;break;}
+  var cv=document.createElement('canvas');box.appendChild(cv);document.body.appendChild(box);
+  document.documentElement.style.overflow='hidden';
+  var g=cv.getContext('2d',{alpha:false}),W=1,H=1,dpr=1,base=90,img=null;
+  medir=function(){
+    dpr=Math.min(2,window.devicePixelRatio||1);W=innerWidth;H=innerHeight;
+    cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);base=Math.max(60,Math.min(120,W/6));
+    img=sprite(Math.ceil(base*1.3*dpr));
+  };
+  medir();window.addEventListener('resize',medir);
+  var lentes=[],chispas=[],atrapados=0,toques=0,lanzados=0,t0=performance.now(),prev=t0,ult=-1e9,fin=false;
+  function lanzar(l){
+    l=l||{};l.w=base*(0.8+Math.random()*0.45);l.h=l.w*64/120;
+    l.x=l.w/2+Math.random()*Math.max(1,W-l.w);l.y=-l.w/2;l.v=H*(0.12+Math.random()*0.1);
+    l.a=Math.random()*6.283;l.g=(Math.random()-0.5)*0.7;return l;
+  }
+  cv.addEventListener('pointerdown',function(e){
+    e.preventDefault();if(fin)return;
+    var r=cv.getBoundingClientRect(),px=e.clientX-r.left,py=e.clientY-r.top;
+    for(var i=lentes.length-1;i>=0;i--){
+      var l=lentes[i],dx=px-l.x,dy=py-l.y,c=Math.cos(l.a),s=Math.sin(l.a),u=dx*c+dy*s,v=dy*c-dx*s;
+      if(Math.abs(u)<=l.w/2+8&&Math.abs(v)<=l.h/2+10){
+        lentes.splice(i,1);pop(l);atrapados++;if(e.pointerType==='touch')toques++;
+        if(atrapados>=TOTAL)terminar(Math.max(1,Math.round(performance.now()-t0)),false);
+        return;
+      }
+    }
   });
   function pop(l){
-    var cx=l.x+l.w/2,cy=l.y+l.w*0.27;l.el.remove();
-    for(var i=0;i<10;i++){var p=document.createElement('div');p.className='px'+(i%4?'':' b');
-      var a=i/10*6.283,r=30+Math.random()*30;p.style.left=cx+'px';p.style.top=cy+'px';
-      p.style.setProperty('--dx',Math.round(Math.cos(a)*r)+'px');p.style.setProperty('--dy',Math.round(Math.sin(a)*r)+'px');
-      box.appendChild(p);setTimeout(p.remove.bind(p),500);}
+    for(var i=0;i<10;i++){var a=i/10*6.283+Math.random()*0.3;
+      chispas.push({x:l.x,y:l.y,vx:Math.cos(a)*120,vy:Math.sin(a)*120,t:0,c:i%4?'#8b0016':'#fff'});}
   }
-  function nuevo(){
-    var w=70+Math.random()*60,el=document.createElement('div');el.className='lente';el.innerHTML=LENTE;
-    el.style.width=w+'px';el.style.height=(w*0.54)+'px';box.appendChild(el);
-    lentes.push({el:el,w:w,x:Math.random()*(innerWidth-w),y:-w,v:55+Math.random()*75,a:Math.random()*360,g:(Math.random()-0.5)*40});
+  function dibujar(now,dt){
+    g.setTransform(1,0,0,1,0,0);g.fillStyle='#000';g.fillRect(0,0,cv.width,cv.height);
+    for(var i=0;i<lentes.length;i++){
+      var l=lentes[i];l.y+=l.v*dt;l.a+=l.g*dt;
+      if(l.y-l.w>H)lanzar(l);
+      var c=Math.cos(l.a)*dpr,s=Math.sin(l.a)*dpr;
+      g.setTransform(c,s,-s,c,l.x*dpr,l.y*dpr);g.drawImage(img,-l.w/2,-l.h/2,l.w,l.h);
+    }
+    g.setTransform(dpr,0,0,dpr,0,0);
+    for(i=chispas.length-1;i>=0;i--){
+      var p=chispas[i];p.t+=dt;if(p.t>0.45){chispas.splice(i,1);continue;}
+      var q=Math.floor(p.t*12)/12;g.globalAlpha=1-q/0.45;g.fillStyle=p.c;
+      g.fillRect(Math.round(p.x+p.vx*q)-5,Math.round(p.y+p.vy*q)-5,10,10);
+    }
+    g.globalAlpha=1;g.fillStyle='#3de8ff';g.font='600 18px ui-monospace,Menlo,Consolas,monospace';
+    g.textAlign='center';g.textBaseline='top';
+    g.fillText('LENTES '+atrapados+'/'+TOTAL+'   '+seg(now-t0),W/2,10);
   }
   function paso(now){
-    if(!box)return;
-    var dt=Math.min(0.05,(now-prev)/1000);prev=now;
-    if(now-ult>650){ult=now;nuevo();}
-    for(var i=lentes.length-1;i>=0;i--){var l=lentes[i];l.y+=l.v*dt;l.a+=l.g*dt;
-      if(l.y>innerHeight+20){l.el.remove();lentes.splice(i,1);continue;}
-      l.el.style.transform='translate('+l.x.toFixed(1)+'px,'+l.y.toFixed(1)+'px) rotate('+l.a.toFixed(1)+'deg)';}
-    marcador(now);
-    if(puntos>=20||now-t0>=30000){terminar();return;}
+    if(!box||fin)return;
+    var dt=Math.min(0.05,Math.max(0,(now-prev)/1000));prev=now;
+    if(lentes.length<EN_PANTALLA&&lanzados<TOTAL&&now-ult>450){ult=now;lanzados++;lentes.push(lanzar(null));}
+    dibujar(now,dt);
+    if(now-t0>CORTE){terminar(0,true);return;}
     raf=requestAnimationFrame(paso);
   }
-  function terminar(){
-    fin=true;end=Date.now()+800;
-    var f=document.createElement('div');f.className='fin';
-    f.innerHTML='<b>BY TINCHOVA007</b><span>PUNTAJE '+puntos+'</span><i>toc\\u00e1 o Esc para volver</i>';
+  function terminar(ms,corte){
+    fin=true;cancelAnimationFrame(raf);
+    var tipo=toques*2>=TOTAL?'celular':'pc',listo=false,f=document.createElement('div');f.className='fin';
+    var w=el(f,'div','','caja');el(w,'b','BY TINCHOVA007');
+    el(w,'span',corte?'TIEMPO AGOTADO':'TIEMPO '+seg(ms)+' s');
+    var vol=document.createElement('button');vol.type='button';vol.className='sec';vol.textContent='Volver';
+    vol.addEventListener('click',cerrar);
+    if(corte){setTimeout(function(){listo=true;},800);}
+    else{
+      var fo=el(w,'form','');
+      var inp=document.createElement('input');inp.type='text';inp.maxLength=3;inp.className='ini3';inp.placeholder='AAA';
+      inp.autocomplete='off';inp.spellcheck=false;inp.setAttribute('autocapitalize','characters');
+      inp.setAttribute('aria-label','Tus iniciales');fo.appendChild(inp);
+      var bt=el(fo,'button','Guardar');bt.type='submit';
+      inp.addEventListener('input',function(){
+        var v=inp.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,3);if(v!==inp.value)inp.value=v;
+      });
+      var msg=el(w,'i','Tus iniciales: hasta 3 letras o n\\u00fameros');
+      fo.addEventListener('submit',function(e){
+        e.preventDefault();var v=inp.value;
+        if(!/^[A-Z0-9]{1,3}$/.test(v)){msg.textContent='Hasta 3 letras o n\\u00fameros';inp.focus();return;}
+        bt.disabled=true;msg.textContent='Guardando...';
+        fetch('/secreto',{method:'POST',credentials:'same-origin',
+          headers:{'Content-Type':'application/x-www-form-urlencoded'},
+          body:'iniciales='+encodeURIComponent(v)+'&tiempo='+ms+'&tipo='+tipo})
+        .then(function(r){return r.json().then(function(d){if(!r.ok)throw new Error(d.error||'error');return d;});})
+        .then(function(d){fo.remove();msg.remove();tabla(w,vol,d);setTimeout(function(){listo=true;},600);})
+        .catch(function(err){bt.disabled=false;msg.textContent='No se guard\\u00f3: '+err.message;});
+      });
+      setTimeout(function(){inp.focus();},50);
+    }
+    w.appendChild(vol);
+    f.addEventListener('click',function(e){if(listo&&e.target.tagName!=='BUTTON')cerrar();});
     box.appendChild(f);
+  }
+  function tabla(w,vol,d){
+    var ol=document.createElement('ol');ol.className='top';
+    function fila(pos,ini,ms,yo){var li=el(ol,'li','',yo?'yo':'');el(li,'span',pos+'.','p');el(li,'span',ini,'n');el(li,'span',seg(ms));}
+    var donde=d.tipo==='celular'?'CELULAR':'PC';
+    if(d.primero){var pr=document.createElement('div');pr.className='primero';
+      el(pr,'span','\\u00a1PRIMER R\\u00c9CORD EN '+donde+'!');el(pr,'span',d.ini+'  '+seg(d.ms)+' s');w.insertBefore(pr,vol);}
+    else{
+      el(ol,'li','TOP 10 '+donde,'tit');
+      for(var i=0;i<d.top.length;i++)fila(i+1,d.top[i].ini,d.top[i].ms,d.top[i].nuevo);
+      if(d.puesto>d.top.length){el(ol,'li','...','mas');fila(d.puesto,d.ini,d.ms,true);}
+      w.insertBefore(ol,vol);
+    }el(w,'i','Toc\\u00e1 o Esc para volver');
   }
   raf=requestAnimationFrame(paso);
 }
-function cerrar(){cancelAnimationFrame(raf);if(box)box.remove();box=null;document.documentElement.style.overflow='';}
+function cerrar(){
+  cancelAnimationFrame(raf);if(medir)window.removeEventListener('resize',medir);
+  if(box)box.remove();box=null;medir=null;document.documentElement.style.overflow='';
+}
 })();"""
+EGG_INITIALS = re.compile(r"[A-Z0-9]{1,3}")
+EGG_MIN_MS, EGG_MAX_MS = 2000, 180000  # un tiempo fuera de esto no se guarda
+
+
+class RateLimit:
+    """Frecuencia de envíos por cliente: uno cada ``gap`` segundos y hasta ``per_hour`` por hora."""
+
+    def __init__(self, gap: float = 5.0, per_hour: int = 30):
+        self.gap, self.per_hour = gap, per_hour
+        self._seen: Dict[str, List[float]] = {}
+        self._lock = threading.Lock()
+
+    def allow(self, client: str, now: Optional[float] = None) -> bool:
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            for key in [k for k, v in self._seen.items() if now - v[-1] > 3600]:
+                del self._seen[key]  # olvida a los que no envían hace más de una hora
+            times = [t for t in self._seen.get(client, []) if now - t < 3600]
+            if (times and now - times[-1] < self.gap) or len(times) >= self.per_hour:
+                self._seen[client] = times or [now]
+                return False
+            self._seen[client] = times + [now]
+            return True
+
+
 EGG_CSP = "'sha256-" + base64.b64encode(hashlib.sha256(EGG_JS.encode("utf-8")).digest()).decode("ascii") + "'"
 
 
@@ -515,6 +628,7 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "arcade-hall-of-fame"
     sys_version = ""
     config: WebConfig  # se asigna en make_server
+    limiter: "RateLimit"  # frecuencia de envíos del minijuego; se asigna en make_server
 
     def log_message(self, format: str, *args) -> None:  # noqa: A002 (firma de la clase base)
         sys.stderr.write(f"{self.client_address[0]} {format % args}\n")
@@ -533,11 +647,15 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "same-origin")
         self.send_header("Content-Security-Policy",
-                         f"default-src 'none'; style-src 'unsafe-inline'; script-src {EGG_CSP}; form-action 'self'; "
+                         f"default-src 'none'; style-src 'unsafe-inline'; script-src {EGG_CSP}; "
+                         "connect-src 'self'; form-action 'self'; "
                          "frame-ancestors 'none'; base-uri 'none'")
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(data)
+
+    def _json(self, status: int, data: dict) -> None:
+        self._send(status, json.dumps(data, ensure_ascii=False), "application/json; charset=utf-8")
 
     def _text(self, status: int, text: str) -> None:
         self._send(status, text + "\n", "text/plain; charset=utf-8")
@@ -581,7 +699,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self._check():
             return
         path = urlsplit(self.path).path
-        if path not in ("/nombrar", "/quitar", "/alias", "/alias/borrar"):
+        if path not in ("/nombrar", "/quitar", "/alias", "/alias/borrar", "/secreto"):
             self._text(404, "No existe.")
             return
         if not same_origin(self.headers, self.headers.get("Host", "")):
@@ -608,12 +726,42 @@ class Handler(BaseHTTPRequestHandler):
             self._text(400, "Envío no válido.")
             return
         values = {k: v[0] for k, v in fields.items()}
+        if path == "/secreto":
+            self._egg(values)
+            return
         with _WRITE_LOCK:
             db = Database(self.config.db_path)
             try:
                 self._apply(db, path, values)
             finally:
                 db.close()
+
+    def _egg(self, values: Dict[str, str]) -> None:
+        """Tiempo del minijuego secreto: lo guarda y devuelve el TOP 10 de su tipo (en JSON)."""
+        if not self.limiter.allow(self.client_address[0]):
+            self._json(429, {"error": "demasiados env\u00edos seguidos; prob\u00e1 en un rato"})
+            return
+        initials, device, raw = values.get("iniciales", ""), values.get("tipo", ""), values.get("tiempo", "")
+        if not EGG_INITIALS.fullmatch(initials):
+            self._json(400, {"error": "las iniciales son hasta 3 letras o n\u00fameros"})
+            return
+        if device not in EGG_DEVICES:
+            self._json(400, {"error": "tipo de partida no v\u00e1lido"})
+            return
+        if not (raw.isascii() and raw.isdigit() and len(raw) <= 7 and EGG_MIN_MS <= int(raw) <= EGG_MAX_MS):
+            self._json(400, {"error": "tiempo no v\u00e1lido"})
+            return
+        ms = int(raw)
+        with _WRITE_LOCK:
+            db = Database(self.config.db_path)
+            try:
+                new_id, rank, count = db.add_egg_time(device, initials, ms, utc_now())
+                top = [{"ini": r["initials"], "ms": r["time_ms"], "nuevo": r["id"] == new_id}
+                       for r in db.egg_top(device, 10)]
+            finally:
+                db.close()
+        self._json(200, {"tipo": device, "ini": initials, "ms": ms, "puesto": rank, "primero": count == 1,
+                         "top": top})
 
     def _apply(self, db: Database, path: str, values: Dict[str, str]) -> None:
         view = GLOBAL
@@ -665,7 +813,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def make_server(config: WebConfig, address: str = "0.0.0.0", port: int = DEFAULT_PORT) -> ThreadingHTTPServer:
-    handler = type("ConfiguredHandler", (Handler,), {"config": config})
+    handler = type("ConfiguredHandler", (Handler,), {"config": config, "limiter": RateLimit()})
     server = ThreadingHTTPServer((address, port), handler)
     server.daemon_threads = True
     return server

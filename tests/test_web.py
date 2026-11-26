@@ -256,11 +256,99 @@ class WebTest(unittest.TestCase):
         csp = response.getheader("Content-Security-Policy")
         digest = base64.b64encode(hashlib.sha256(scripts[0].encode("utf-8")).digest()).decode("ascii")
         self.assertIn(f"script-src 'sha256-{digest}';", csp)
+        self.assertIn("connect-src 'self';", csp)
+        self.assertIn("createElement('canvas')", scripts[0])
         for part in ("default-src 'none'", "form-action 'self'", "frame-ancestors 'none'", "base-uri 'none'"):
             self.assertIn(part, csp)
         self.assertNotIn("unsafe-eval", csp)
         self.assertNotIn("script-src 'unsafe-inline'", csp)
         self.assertEqual(response.getheader("X-Content-Type-Options"), "nosniff")
+    def egg(self, iniciales="TCH", tiempo="12437", tipo="celular", headers=None):
+        import json
+
+        response, data = self.request("POST", "/secreto", {"iniciales": iniciales, "tiempo": tiempo, "tipo": tipo},
+                                      headers)
+        return response, (json.loads(data) if response.getheader("Content-Type", "").startswith("application/json")
+                          else data)
+
+    def test_minijuego_guarda_y_devuelve_el_top_10_de_su_tipo(self):
+        self.server.RequestHandlerClass.limiter = web.RateLimit(gap=0, per_hour=1000)
+        db = self.db()
+        for i, ms in enumerate([9000, 8000, 7000, 6000, 5000, 4000, 3000, 20000, 21000, 22000, 23000]):
+            db.add_egg_time("celular", f"C{i}", ms, NOW)
+        db.add_egg_time("pc", "PC1", 2500, NOW)
+        db.close()
+        response, d = self.egg("TCH", "12437", "celular")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(d["tipo"], "celular")
+        self.assertEqual((d["puesto"], d["primero"], d["ms"]), (8, False, 12437))
+        self.assertEqual([r["ms"] for r in d["top"]],
+                         [3000, 4000, 5000, 6000, 7000, 8000, 9000, 12437, 20000, 21000])
+        self.assertEqual([r["ini"] for r in d["top"] if r["nuevo"]], ["TCH"])
+        self.assertNotIn("PC1", [r["ini"] for r in d["top"]])  # la de PC es otra tabla
+        # Empate: primero el que llegó antes. Fuera del top 10: el puesto igual vuelve.
+        response, d = self.egg("ZZ9", "12437", "celular")
+        self.assertEqual(d["puesto"], 9)
+        self.assertEqual([r["ini"] for r in d["top"]][7:9], ["TCH", "ZZ9"])
+        response, d = self.egg("Q7X", "99999", "celular")
+        self.assertEqual((d["puesto"], len(d["top"])), (14, 10))
+        self.assertFalse(any(r["nuevo"] for r in d["top"]))
+        # Primer récord de PC... ya hay uno; el primero de un tipo vacío se marca.
+        db = self.db()
+        db.conn.execute("DELETE FROM egg_times WHERE device = 'pc'")
+        db.conn.commit()
+        response, d = self.egg("ABC", "4000", "pc")
+        self.assertEqual((d["primero"], d["puesto"], [r["ini"] for r in d["top"]]), (True, 1, ["ABC"]))
+        # La tabla no aparece en la página (ni en ningún otro lado).
+        _, page = self.request("GET", "/")
+        self.assertNotIn("ZZ9", page)
+        self.assertNotIn("Q7X", page)
+
+    def test_minijuego_valida_lo_recibido(self):
+        self.server.RequestHandlerClass.limiter = web.RateLimit(gap=0, per_hour=1000)
+        for ini, ms, tipo in [("tch", "12437", "pc"), ("ABCD", "12437", "pc"), ("", "12437", "pc"),
+                              ("A B", "12437", "pc"), ("ÑAN", "12437", "pc"), ("<b>", "12437", "pc"),
+                              ("TCH", "1999", "pc"), ("TCH", "180001", "pc"), ("TCH", "12.4", "pc"),
+                              ("TCH", "-5000", "pc"), ("TCH", "١٢٣٤٥", "pc"), ("TCH", "12437", "tablet"),
+                              ("TCH", "12437", "")]:
+            with self.subTest(ini=ini, ms=ms, tipo=tipo):
+                response, d = self.egg(ini, ms, tipo)
+                self.assertEqual(response.status, 400)
+                self.assertIn("error", d)
+        response, _ = self.request("POST", "/secreto", "iniciales=TCH&iniciales=AAA&tiempo=5000&tipo=pc")
+        self.assertEqual(response.status, 400)
+        db = self.db()
+        self.assertEqual(db.egg_top("pc") + db.egg_top("celular"), [])
+        with self.assertRaises(ValueError):
+            db.add_egg_time("tablet", "TCH", 5000, NOW)
+
+    def test_minijuego_exige_origen_y_limita_la_frecuencia(self):
+        response, _ = self.egg(headers={"Origin": "http://otra.example"})
+        self.assertEqual(response.status, 403)
+        response, _ = self.egg(headers={"Origin": ""})
+        self.assertEqual(response.status, 403)
+        response, _ = self.egg(headers={"Host": "evil.example", "Origin": "http://evil.example"})
+        self.assertEqual(response.status, 400)
+        response, _ = self.request("GET", "/secreto")
+        self.assertEqual(response.status, 404)
+        self.assertEqual(self.db().egg_top("celular"), [])
+        response, d = self.egg()
+        self.assertEqual(response.status, 200)
+        response, d = self.egg("OTR")  # enseguida: demasiado seguido
+        self.assertEqual(response.status, 429)
+        self.assertEqual([r["initials"] for r in self.db().egg_top("celular")], ["TCH"])
+        self.assertEqual(self.changes, [])  # no regenera el protector
+
+    def test_limite_de_frecuencia(self):
+        limit = web.RateLimit(gap=5, per_hour=3)
+        self.assertTrue(limit.allow("a", 0))
+        self.assertFalse(limit.allow("a", 2))
+        self.assertTrue(limit.allow("b", 2))  # cada cliente por separado
+        self.assertTrue(limit.allow("a", 10))
+        self.assertTrue(limit.allow("a", 20))
+        self.assertFalse(limit.allow("a", 30))  # tres en la hora
+        self.assertTrue(limit.allow("a", 3601))
+
     def test_records_anteriores_en_la_pagina(self):
         db = self.db()
         add_table(db, "pacman", [(2000, None)], "2026-11-20T10:00:00+00:00")  # supera al 1400

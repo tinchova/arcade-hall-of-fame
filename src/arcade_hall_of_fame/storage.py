@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 APP_NAME = "arcade-hall-of-fame"
 
 SCHEMA = """
@@ -131,6 +131,22 @@ CREATE TABLE player_aliases (
 )
 """
 
+# Agregado en la versión 6: tiempos del minijuego secreto de la página web
+# (milisegundos, menos es mejor), en dos tablas según cómo se jugó: ``celular``
+# (touch) o ``pc`` (mouse o pen). No tiene nada que ver con los récords de los
+# juegos: solo se muestra en la pantalla final del minijuego.
+SCHEMA_V6 = """
+CREATE TABLE egg_times (
+    id INTEGER PRIMARY KEY,
+    device TEXT NOT NULL CHECK (device IN ('celular', 'pc')),
+    initials TEXT NOT NULL,
+    time_ms INTEGER NOT NULL,
+    created_utc TEXT NOT NULL
+)
+"""
+EGG_DEVICES = ("celular", "pc")
+EGG_KEEP = 1000  # filas que se conservan por tipo (las más rápidas)
+
 BASELINE_NOTE = "línea base"
 NEW_GAME_NOTE = "primer récord de un juego nuevo"
 
@@ -195,7 +211,7 @@ class Database:
 
     def _migrate(self, version: int) -> None:
         """Crea o actualiza el esquema en una sola transacción (todo o nada)."""
-        steps = [(1, SCHEMA), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5)]
+        steps = [(1, SCHEMA), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4), (5, SCHEMA_V5), (6, SCHEMA_V6)]
         self.conn.execute("BEGIN")
         try:
             for target, script in steps:
@@ -348,6 +364,31 @@ class Database:
         with self.conn:
             cursor = self.conn.execute("DELETE FROM player_aliases WHERE initials = ?", (initials,))
         return cursor.rowcount > 0
+
+    def egg_top(self, device: str, limit: int = 10) -> List[sqlite3.Row]:
+        """Tiempos del minijuego de un tipo (``celular`` o ``pc``), del más rápido al más
+        lento; si empatan, primero el que llegó antes."""
+        return self.conn.execute("SELECT id, initials, time_ms FROM egg_times WHERE device = ? "
+                                 "ORDER BY time_ms, id LIMIT ?", (device, limit)).fetchall()
+
+    def add_egg_time(self, device: str, initials: str, time_ms: int, now: str) -> Tuple[int, int, int]:
+        """Guarda un tiempo del minijuego. Devuelve (id, puesto, cantidad de ese tipo).
+
+        Conserva solo los ``EGG_KEEP`` mejores de cada tipo.
+        """
+        if device not in EGG_DEVICES:
+            raise ValueError(f"tipo de partida no válido: {device!r}")
+        with self.conn:
+            new_id = self.conn.execute("INSERT INTO egg_times (device, initials, time_ms, created_utc) "
+                                       "VALUES (?, ?, ?, ?)", (device, initials, time_ms, now)).lastrowid
+            rank = self.conn.execute("SELECT COUNT(*) FROM egg_times WHERE device = ? AND "
+                                     "(time_ms < ? OR (time_ms = ? AND id < ?))",
+                                     (device, time_ms, time_ms, new_id)).fetchone()[0] + 1
+            count = self.conn.execute("SELECT COUNT(*) FROM egg_times WHERE device = ?", (device,)).fetchone()[0]
+            self.conn.execute("DELETE FROM egg_times WHERE device = ? AND id NOT IN "
+                              "(SELECT id FROM egg_times WHERE device = ? ORDER BY time_ms, id LIMIT ?)",
+                              (device, device, EGG_KEEP))
+        return new_id, rank, count
 
     def setting(self, key: str) -> Optional[str]:
         row = self.conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
