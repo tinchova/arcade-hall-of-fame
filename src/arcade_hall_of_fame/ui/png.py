@@ -1,9 +1,9 @@
 """Lector de PNG y escalado, en Python puro (sin dependencias).
 
 Se usa para mostrar los marquees y capturas que bajó ES-DE. Soporta lo que
-ES-DE suele bajar: 8 bits por canal, sin entrelazado, tipos de color 0 (gris),
+ES-DE suele bajar: 8 bits por canal, con o sin entrelazado (Adam7), tipos de color 0 (gris),
 2 (RGB), 3 (paleta), 4 (gris con alfa) y 6 (RGBA), con los cinco filtros y la
-transparencia de ``tRNS``. Cualquier otra cosa (16 bits, entrelazado, un JPG con
+transparencia de ``tRNS``. Cualquier otra cosa (16 bits, otro entrelazado, un JPG con
 extensión .png) da ``PNGError`` y quien llama muestra el texto en su lugar.
 
 El resultado es RGB de 3 bytes por píxel, compuesto sobre negro (el fondo de
@@ -48,8 +48,8 @@ def check_supported(header: Tuple[int, int, int, int, int]) -> None:
         raise PNGError(f"tipo de color {color} no soportado")
     if depth != 8:
         raise PNGError(f"{depth} bits por canal no soportado")
-    if interlace:
-        raise PNGError("PNG entrelazado no soportado")
+    if interlace not in (0, 1):
+        raise PNGError(f"entrelazado {interlace} no soportado")
     if not (0 < width <= 8192 and 0 < height <= 8192):
         raise PNGError("tamaño no válido")
 
@@ -122,6 +122,37 @@ def _unfilter(raw: bytes, height: int, stride: int, bpp: int) -> bytearray:
     return out
 
 
+# Entrelazado Adam7: (x inicial, y inicial, paso en x, paso en y) de cada una de las 7 pasadas.
+ADAM7 = ((0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2))
+
+
+def _deinterlace(raw: bytes, width: int, height: int, bpp: int) -> bytearray:
+    """Arma la imagen completa a partir de las 7 subimágenes de Adam7.
+
+    Cada pasada es una imagen chica con sus propios filtros; sus píxeles se
+    reparten en la imagen completa con rebanadas de paso fijo (un canal a la vez).
+    """
+    stride = width * bpp
+    out = bytearray(height * stride)
+    pos = 0
+    for x0, y0, dx, dy in ADAM7:
+        pass_w = (width - x0 + dx - 1) // dx if width > x0 else 0
+        pass_h = (height - y0 + dy - 1) // dy if height > y0 else 0
+        if not pass_w or not pass_h:
+            continue  # pasada vacía: no tiene ni el byte de filtro
+        size = pass_h * (1 + pass_w * bpp)
+        sub = _unfilter(raw[pos:pos + size], pass_h, pass_w * bpp, bpp)
+        pos += size
+        sub_stride = pass_w * bpp
+        for r in range(pass_h):
+            row_start = (y0 + r * dy) * stride
+            line = sub[r * sub_stride:(r + 1) * sub_stride]
+            for c in range(bpp):
+                first = row_start + x0 * bpp + c
+                out[first:first + (pass_w - 1) * dx * bpp + 1:dx * bpp] = line[c::bpp]
+    return out
+
+
 # Tablas de "valor * alfa / 255" (redondeado) para componer sobre negro, una por alfa.
 _MUL: List[bytes] = [bytes((v * a + 127) // 255 for v in range(256)) for a in range(256)]
 _NOT_OPAQUE = re.compile(rb"[^\xff]+")
@@ -151,7 +182,7 @@ def decode(data: bytes) -> Tuple[int, int, bytes]:
     """PNG → (ancho, alto, RGB compuesto sobre negro)."""
     header = read_header(data)
     check_supported(header)
-    width, height, _depth, color, _interlace = header
+    width, height, _depth, color, interlace = header
     palette = b""
     trns = b""
     idat = []
@@ -169,7 +200,10 @@ def decode(data: bytes) -> Tuple[int, int, bytes]:
     except zlib.error as exc:
         raise PNGError(f"datos comprimidos dañados: {exc}") from None
     bpp = CHANNELS[color]
-    pixels = _unfilter(raw, height, width * bpp, bpp)
+    if interlace:
+        pixels = _deinterlace(raw, width, height, bpp)
+    else:
+        pixels = _unfilter(raw, height, width * bpp, bpp)
     count = width * height
     rgb = bytearray(count * 3)
     if color == 0:

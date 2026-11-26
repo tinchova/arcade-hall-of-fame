@@ -42,12 +42,26 @@ def make_png(width, height, color, raw_pixels, filters=(0,), palette=b"", trns=b
     """PNG con los filtros dados (uno por fila, en ciclo), escrito a mano para las pruebas."""
     bpp = png.CHANNELS[color]
     stride = width * bpp
-    prev = bytes(stride)
-    data = b""
-    for y in range(height):
-        line = raw_pixels[y * stride:(y + 1) * stride]
-        data += _filter_line(filters[y % len(filters)], line, prev, bpp)
-        prev = line
+
+    def filtered(w, h, pixels):
+        prev = bytes(w * bpp)
+        out = b""
+        for y in range(h):
+            line = pixels[y * w * bpp:(y + 1) * w * bpp]
+            out += _filter_line(filters[y % len(filters)], line, prev, bpp)
+            prev = line
+        return out
+
+    if interlace == 1:  # Adam7: cada pasada es una subimagen con sus propios filtros
+        data = b""
+        for x0, y0, dx, dy in png.ADAM7:
+            xs, ys = range(x0, width, dx), range(y0, height, dy)
+            if not xs or not ys:
+                continue
+            sub = b"".join(raw_pixels[y * stride + x * bpp:y * stride + (x + 1) * bpp] for y in ys for x in xs)
+            data += filtered(len(xs), len(ys), sub)
+    else:
+        data = filtered(width, height, raw_pixels)
 
     def chunk(kind, body):
         return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
@@ -131,9 +145,22 @@ class PNGReaderTest(unittest.TestCase):
         _w, _h, rgb = png.decode(make_png(self.W, self.H, 0, gray, trns=struct.pack(">H", 9)))
         self.assertEqual(rgb, bytes([5, 5, 5, 0, 0, 0] * 21))
 
+    def test_entrelazado_adam7(self):
+        # Tamaños chicos y raros: algunas pasadas quedan vacías.
+        for width, height in ((1, 1), (2, 3), (5, 1), (9, 10), (17, 9)):
+            for color, channels, extra in ((0, 1, {}), (2, 3, {}), (3, 1, {"palette": bytes(range(48))}),
+                                            (4, 2, {}), (6, 4, {})):
+                raw = pattern(width, height, channels)
+                if color == 3:
+                    raw = bytes(v % 16 for v in raw)
+                for filters in ((0,), (1,), (2,), (3,), (4,), (0, 1, 2, 3, 4)):
+                    plain = png.decode(make_png(width, height, color, raw, filters, **extra))
+                    laced = png.decode(make_png(width, height, color, raw, filters, interlace=1, **extra))
+                    self.assertEqual(laced, plain, (width, height, color, filters))
+
     def test_no_soportados(self):
         raw = pattern(self.W, self.H, 3)
-        interlaced = make_png(self.W, self.H, 2, raw, interlace=1)
+        interlaced = make_png(self.W, self.H, 2, raw, interlace=2)  # método de entrelazado inexistente
         sixteen = make_png(2, 2, 2, bytes(24), depth=16)
         jpg = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00" + bytes(40)
         for data in (interlaced, sixteen, jpg, b"", png.SIGNATURE + b"cortado"):
@@ -210,7 +237,7 @@ class MediaTest(unittest.TestCase):
 
     def test_no_soportado_o_jpg_usa_texto(self):
         self.put("fbneo/marquees/fbneo/a.png", b"\xff\xd8\xff\xe0 un jpg con nombre .png")
-        self.put("fbneo/marquees/fbneo/b.png", make_png(2, 2, 2, bytes(12), interlace=1))
+        self.put("fbneo/marquees/fbneo/b.png", make_png(2, 2, 2, bytes(24), depth=16))
         self.put("fbneo/screenshots/fbneo/a.png", self.red())
         media = Media(self.root, "fbneo")
         self.assertIsNone(media.marquee("a"))
