@@ -11,7 +11,12 @@ lista con el comando ``pendientes``.
 
 El primer escaneo (base sin tablas) es la línea base y no anuncia récords. Un
 juego que aparece después (un ``.hi`` nuevo) sí cuenta su primer récord en
-"últimos récords", salvo que su máximo sea una entrada de fábrica.
+"últimos récords", salvo que solo tenga entradas de fábrica.
+
+Las entradas de fábrica no cuentan para los récords: el récord de un juego es
+su mejor fila de jugador (``storage.player_top``). Un récord real que no supera
+a la fábrica igual es récord si supera al real anterior. El máximo de la tabla
+entera (con fábrica) solo se usa para detectar tablas que bajaron (pendientes).
 """
 
 from __future__ import annotations
@@ -30,7 +35,7 @@ from .hi2txt.formats import render, to_number
 from .models import (DefinitionError, FormatError, HighScoreError, IncompatibleFile, MissingDefinition,
                      SourceReadError, UnsupportedDefinition)
 from .reader import read_source
-from .storage import BASELINE_NOTE, NEW_GAME_NOTE, Database
+from .storage import BASELINE_NOTE, NEW_GAME_NOTE, Database, player_top
 
 LOWER_TOP_NOTE = "el máximo bajó: posible reinicio o restauración; no reemplaza la tabla vigente"
 
@@ -99,10 +104,11 @@ def _number(value) -> Optional[float]:
         return None
 
 
-def _holders(rows: List[Dict], top: Optional[float]) -> List[str]:
-    """Iniciales atribuibles que tienen el máximo (sin fábrica, sin vacías)."""
-    if top is None:
+def _holders(rows: List[Dict], best) -> List[str]:
+    """Iniciales atribuibles que tienen el récord ``best`` (sin fábrica, sin vacías)."""
+    if best is None:
         return []
+    top = best["score_num"]
     return sorted({
         r["initials"].strip() for r in rows
         if r["score_num"] == top and r["initials"] and r["initials"].strip() and not r["factory"]
@@ -192,22 +198,26 @@ def _record(db: Database, game, file_name, file_hash, rows, stamp, revision, rep
     source = db.source(game)
     current = db.observation(source["current_observation_id"]) if source and source["current_observation_id"] else None
     status, note, make_current, event = "aceptada", None, True, None
+    best = player_top(rows)
     if current is None:
         note = BASELINE_NOTE if baseline else NEW_GAME_NOTE
-        top_rows = [r for r in rows if top_num is not None and r["score_num"] == top_num]
-        if not baseline and top_rows and not any(r["factory"] for r in top_rows):
-            event = {"previous_top": None, "new_top": top_text, "previous_holders": [],
-                     "new_holders": _holders(rows, top_num)}
-    elif top_num is not None and current["top_score_num"] is not None:
-        if top_num < current["top_score_num"]:
+        if not baseline and best is not None:
+            event = {"previous_top": None, "new_top": best["score_text"], "previous_holders": [],
+                     "new_holders": _holders(rows, best)}
+    else:
+        previous_rows = [dict(r) for r in db.entries(current["id"])]
+        previous = player_top(previous_rows)
+        lower_table = top_num is not None and current["top_score_num"] is not None and top_num < current["top_score_num"]
+        # También baja si se pierde el récord de un jugador aunque la fábrica siga arriba.
+        lower_player = previous is not None and (best is None or best["score_num"] < previous["score_num"])
+        if lower_table or lower_player:
             status, note, make_current = "pendiente", LOWER_TOP_NOTE, False
-        elif top_num > current["top_score_num"]:
-            previous_rows = [dict(r) for r in db.entries(current["id"])]
+        elif best is not None and (previous is None or best["score_num"] > previous["score_num"]):
             event = {
-                "previous_top": current["top_score_text"],
-                "new_top": top_text,
-                "previous_holders": _holders(previous_rows, current["top_score_num"]),
-                "new_holders": _holders(rows, top_num),
+                "previous_top": previous["score_text"] if previous is not None else None,
+                "new_top": best["score_text"],
+                "previous_holders": _holders(previous_rows, previous),
+                "new_holders": _holders(rows, best),
             }
     db.add_observation(game, file_name, file_hash, stamp, rows, top_text, top_num, status, note,
                        make_current, event, __version__, revision)

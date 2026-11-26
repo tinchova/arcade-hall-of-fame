@@ -222,7 +222,7 @@ Las iniciales son las guardadas por el juego, y el ranking las usa tal cual. Par
 {"jugadores": {"Ana": ["ANA", "A.N"]}}
 ```
 
-Las entradas de fábrica (según las tablas `db_defaults` de hi2txt-xml) no dan crédito y no se muestran en la pantalla ni en las imágenes; un juego que solo tiene entradas de fábrica no aparece. Siguen guardadas en la base y se ven con `juego <nombre>`.
+Las entradas de fábrica (según las tablas `db_defaults` de hi2txt-xml) se ignoran del todo para el ranking, los récords y las tablas que se muestran: el primer puesto de un juego es su mejor entrada que no es de fábrica (si tiene nombre), aunque la fábrica tenga más puntos, y los puestos que se muestran se renumeran sin ellas. Por ejemplo, si 1942 tiene la fábrica en los tres primeros lugares y TCH en el cuarto, TCH es el 1º. Un juego que solo tiene entradas de fábrica no aparece. Siguen guardadas en la base y `juego <nombre>` las lista como referencia, sin puesto y con su posición original en el juego. El puesto de `nombrar --puesto` es el que se muestra, sin la fábrica.
 
 ### Récords sin iniciales y nombres puestos a mano
 
@@ -247,9 +247,9 @@ Lo que se muestra en cada fila es: nombre puesto a la fila > alias de sus inicia
 
 Con `--mostrar-sin-iniciales` (o `ARCADE_HOF_MOSTRAR_SIN_INICIALES=1`), la pantalla y las imágenes muestran también los récords sin nombre, con el jugador como `???`. Está desactivada por defecto.
 
-El primer escaneo de todo es la línea base y no anuncia récords batidos. Un juego que aparece después (un `.hi` nuevo, como la primera partida a un juego) sí cuenta su primer récord en "últimos récords", salvo que sea una entrada de fábrica; si no tiene nombre, se muestra solo con la opción anterior.
+El primer escaneo de todo es la línea base y no anuncia récords batidos. Un juego que aparece después (un `.hi` nuevo, como la primera partida a un juego) sí cuenta su primer récord en "últimos récords", salvo que solo tenga entradas de fábrica; si no tiene nombre, se muestra solo con la opción anterior.
 
-"Últimos récords" también incluye los récords vigentes de la línea base que tienen titular (iniciales del juego o un nombre puesto con `nombrar`), con la fecha en que se detectó esa puntuación por primera vez y el nombre puesto, si lo hay, en lugar de las iniciales originales. Los de fábrica y los que no tienen nombre no aparecen. Cuando uno de esos récords se bate, queda el récord batido en su lugar. En `records` figuran como "línea base".
+"Últimos récords" también incluye los récords vigentes de la línea base que tienen titular (iniciales del juego o un nombre puesto con `nombrar`), con la fecha en que se detectó esa puntuación por primera vez y el nombre puesto, si lo hay, en lugar de las iniciales originales. Los juegos que solo tienen fábrica y los récords sin nombre no aparecen. Un récord de jugador que supera al récord de jugador anterior cuenta aunque no supere a la fábrica; si el récord de un jugador desaparece (aunque la fábrica siga arriba), la tabla queda pendiente como cualquier máximo que baja. Cuando uno de esos récords se bate, queda el récord batido en su lugar. En `records` figuran como "línea base".
 
 ### Rotación de pantallas
 

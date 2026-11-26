@@ -41,7 +41,7 @@ from .naming import UNNAMED, NamingError, assign_name, entry_name, remove_name, 
 from .rankings import leaders, player_ranking, recent_records
 from .scanner import scan, utc_now
 from .players import load_players
-from .storage import PENDING_SEEN_KEY, Database, default_data_dir, default_database, default_players_file
+from .storage import PENDING_SEEN_KEY, Database, visible_positions, default_data_dir, default_database, default_players_file
 
 REPO_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_DB_DIR = REPO_DIR / "local" / "hi2txt-xml" / REVISION / "src" / "main" / "db"
@@ -295,18 +295,22 @@ def cmd_game(args, db: Database) -> int:
         print(f"No hay una tabla registrada para {args.nombre}{error}", file=sys.stderr)
         return 1
     observation = db.observation(source["current_observation_id"])
+    entries = db.entries(observation["id"])
+    shown = visible_positions(entries)
     rows = []
-    for e in db.entries(observation["id"]):
+    for e in entries:
         notes = []
         name = entry_name(db, args.nombre, e)
         if e["factory"]:
-            notes.append("fábrica")
+            # La fábrica se muestra solo como referencia: no tiene puesto ni cuenta para el récord.
+            notes.append(f"fábrica, no cuenta (puesto {e['position']} en el juego)")
         elif name is None:
             notes.append("sin nombre")
         elif name != e["initials"]:
             original = (e["initials"] or "").strip()
             notes.append("nombre puesto con 'nombrar'" + (f" (original: {original})" if original else ""))
-        rows.append([str(e["position"]), e["score_text"], name or (e["initials"] or ""), ", ".join(notes)])
+        position = "-" if e["factory"] else str(shown[e["position"]])
+        rows.append([position, e["score_text"], name or (e["initials"] or ""), ", ".join(notes)])
     print(f"{args.nombre}: tabla vigente desde {local_time(observation['detected_utc'])}, "
           f"última lectura {local_time(source['last_seen_utc'])}")
     print_table(["Pos", "Puntuación", "Iniciales", "Notas"], rows)

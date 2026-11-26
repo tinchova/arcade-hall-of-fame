@@ -2,11 +2,12 @@
 
 Reglas (docs/REQUISITOS.md):
 
-* El primer puesto de un juego es la puntuación máxima de su tabla vigente.
+* Las entradas de fábrica se ignoran del todo: el primer puesto de un juego es
+  la mejor fila que no es de fábrica de su tabla vigente, aunque la fábrica
+  tenga más puntos. Un juego que solo tiene entradas de fábrica no tiene récord.
 * Si varias iniciales empatan en ese máximo, cada una recibe el juego.
-* Entradas de fábrica no dan crédito. Un máximo sin iniciales (juegos que no
-  las guardan o iniciales vacías) tampoco, hasta que se le pone nombre con
-  ``nombrar`` (ver ``naming.py``).
+* Un máximo sin iniciales (juegos que no las guardan o iniciales vacías) no da
+  crédito hasta que se le pone nombre con ``nombrar`` (ver ``naming.py``).
 * La clasificación general cuenta juegos, no suma puntos.
 * ``jugadores.json`` puede agrupar varias iniciales de una persona; cada
   persona cuenta como máximo una vez por juego.
@@ -20,7 +21,7 @@ from typing import Dict, List, Optional, Tuple
 
 from .naming import entry_name, needs_name
 from .players import Players, name_key
-from .storage import Database
+from .storage import Database, player_rows_of, player_top
 
 
 @dataclass(frozen=True)
@@ -46,24 +47,24 @@ def leaders(db: Database, players: Optional[Players] = None) -> List[GameLeader]
     for source in db.sources():
         if not source["current_observation_id"]:
             continue
-        observation = db.observation(source["current_observation_id"])
-        rows = db.entries(observation["id"])
-        top = observation["top_score_num"]
-        top_rows = [r for r in rows if top is not None and r["score_num"] == top]
-        names = [entry_name(db, source["game"], r) for r in top_rows if not r["factory"]]
+        rows = db.entries(source["current_observation_id"])
+        best = player_top(rows)
+        top_rows = [r for r in player_rows_of(rows) if best is not None and r["score_num"] == best["score_num"]]
+        names = [entry_name(db, source["game"], r) for r in top_rows]
         holders = tuple(players.names(n for n in names if n))
         unnamed = not holders and any(needs_name(r) for r in top_rows)
         reason = ""
         if not holders:
-            if top is None:
+            if best is None and rows and all(r["factory"] for r in rows):
+                reason = "solo tiene entradas de fábrica"
+            elif best is None:
                 reason = "puntuación no numérica"
-            elif any(r["factory"] for r in top_rows):
-                reason = "el máximo es una entrada de fábrica"
             elif all(r["initials"] is None for r in rows):
                 reason = "el juego no guarda iniciales; falta ponerle nombre"
             else:
                 reason = "el máximo no tiene iniciales; falta ponerle nombre"
-        result.append(GameLeader(source["game"], observation["top_score_text"], holders, reason, unnamed))
+        result.append(GameLeader(source["game"], best["score_text"] if best is not None else None, holders,
+                                 reason, unnamed))
     return result
 
 
@@ -108,8 +109,8 @@ def recent_records(db: Database, limit: int = 10, players: Optional[Players] = N
     Si el récord no tenía iniciales (o se le cambiaron) y después se le puso
     nombre, se muestra ese nombre. ``unnamed`` indica que el nuevo récord sigue
     sin titular. Los de la línea base (``baseline``) llevan la fecha en que se
-    detectó por primera vez esa puntuación; los de fábrica y los que no tienen
-    nombre no se incluyen.
+    detectó por primera vez esa puntuación; los juegos que solo tienen fábrica y
+    los récords sin nombre no se incluyen.
     """
     players = players or Players()
     result = []

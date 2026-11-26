@@ -137,6 +137,29 @@ NEW_GAME_NOTE = "primer récord de un juego nuevo"
 PENDING_SEEN_KEY = "pendientes_vistos_utc"
 
 
+def player_rows_of(rows: Sequence[Any]) -> List[Any]:
+    """Filas de jugadores: sin las entradas de fábrica, que no cuentan para nada."""
+    return [r for r in rows if not r["factory"]]
+
+
+def player_top(rows: Sequence[Any]) -> Optional[Any]:
+    """Mejor fila que no es de fábrica (la primera, si hay empate), o None.
+
+    El récord de un juego es esta fila: las entradas de fábrica se ignoran del
+    todo, aunque tengan más puntos que los jugadores.
+    """
+    numeric = [r for r in player_rows_of(rows) if r["score_num"] is not None]
+    if not numeric:
+        return None
+    top = max(r["score_num"] for r in numeric)
+    return next(r for r in numeric if r["score_num"] == top)
+
+
+def visible_positions(rows: Sequence[Any]) -> Dict[int, int]:
+    """Puesto original -> puesto que se muestra, renumerado sin las entradas de fábrica."""
+    return {r["position"]: i for i, r in enumerate(player_rows_of(rows), start=1)}
+
+
 def default_data_dir() -> Path:
     """Carpeta de datos del usuario según el sistema (fuera del repositorio)."""
     home = Path.home()
@@ -201,14 +224,16 @@ class Database:
             (BASELINE_NOTE, row[0]),
         ).fetchall()
         for obs in candidates:
-            top = [e for e in self.entries(obs["id"]) if e["score_num"] == obs["top_score_num"]]
-            if not top or any(e["factory"] for e in top):
+            entries = self.entries(obs["id"])
+            best = player_top(entries)
+            if best is None:
                 continue
+            top = [e for e in player_rows_of(entries) if e["score_num"] == best["score_num"]]
             holders = sorted({e["initials"].strip() for e in top if e["initials"] and e["initials"].strip()})
             self.conn.execute(
                 "INSERT INTO record_events (game, observation_id, detected_utc, previous_top_text, new_top_text, "
                 "previous_holders, new_holders) VALUES (?, ?, ?, NULL, ?, '[]', ?)",
-                (obs["game"], obs["id"], obs["detected_utc"], obs["top_score_text"], json.dumps(holders)),
+                (obs["game"], obs["id"], obs["detected_utc"], best["score_text"], json.dumps(holders)),
             )
             self.conn.execute("UPDATE observations SET note = ? WHERE id = ?", (NEW_GAME_NOTE, obs["id"]))
 
@@ -261,12 +286,25 @@ class Database:
         ).fetchone() is not None
 
     def first_seen_top(self, game: str, top_text: str) -> Optional[str]:
-        """Hora UTC de la primera tabla aceptada del juego con ese máximo, o None."""
-        row = self.conn.execute(
-            "SELECT MIN(detected_utc) FROM observations WHERE game = ? AND top_score_text = ? "
-            "AND status = 'aceptada'", (game, top_text)
-        ).fetchone()
-        return row[0] if row else None
+        """Hora UTC de la primera tabla aceptada del juego cuyo récord (sin contar
+        las entradas de fábrica) es esa puntuación, o None."""
+        candidates = self.conn.execute(
+            "SELECT DISTINCT o.id, o.detected_utc FROM observations o JOIN entries e ON e.observation_id = o.id "
+            "WHERE o.game = ? AND o.status = 'aceptada' AND e.score_text = ? AND e.factory = 0 "
+            "ORDER BY o.detected_utc, o.id", (game, top_text)
+        ).fetchall()
+        for row in candidates:
+            best = player_top(self.entries(row["id"]))
+            if best is not None and best["score_text"] == top_text:
+                return row["detected_utc"]
+        return None
+
+    def current_top(self, game: str) -> Optional[sqlite3.Row]:
+        """Fila del récord de la tabla vigente (sin contar la fábrica), o None."""
+        source = self.source(game)
+        if source is None or not source["current_observation_id"]:
+            return None
+        return player_top(self.entries(source["current_observation_id"]))
 
     def unreadable(self) -> List[sqlite3.Row]:
         """Juegos con un ``.hi`` que no se puede leer, por nombre de juego."""

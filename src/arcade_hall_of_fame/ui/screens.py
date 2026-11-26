@@ -11,7 +11,7 @@ from ..names import GameNames
 from ..naming import UNNAMED, entry_name
 from ..players import Players, name_key
 from ..rankings import leaders, player_ranking, recent_records
-from ..storage import Database
+from ..storage import Database, player_rows_of, visible_positions
 
 # Paleta: el único lugar donde se definen colores. Base tomada de las paletas
 # "Gaming" y "Arcade & Retro Game" del skill ui-ux-pro-max; todo el texto tiene
@@ -209,9 +209,11 @@ def game_screen(db: Database, game: str, players: Players, names: GameNames,
                 show_no_initials: bool = False) -> Optional[Screen]:
     """Tabla de un juego, o None si no tiene nada para mostrar.
 
-    Las entradas de fábrica no se muestran. Las filas sin iniciales se muestran
-    con el nombre puesto a mano (``nombrar``); si no tienen, solo con
-    ``show_no_initials`` y como ``???``. Se conserva la posición original.
+    Las entradas de fábrica se ignoran: no se muestran y los puestos se
+    renumeran sin ellas (el 1º es la mejor fila de jugador, aunque la fábrica
+    tenga más puntos). Las filas sin iniciales se muestran con el nombre puesto
+    a mano (``nombrar``); si no tienen, solo con ``show_no_initials`` y como
+    ``???`` (ocultas, igual ocupan su puesto).
     """
     source = db.source(game)
     if source is None or not source["current_observation_id"]:
@@ -219,13 +221,13 @@ def game_screen(db: Database, game: str, players: Players, names: GameNames,
     observation = db.observation(source["current_observation_id"])
     rows = []
     any_unnamed = False
-    for e in db.entries(observation["id"]):
-        if e["factory"]:
-            continue
+    entries = db.entries(observation["id"])
+    shown_positions = visible_positions(entries)
+    for e in player_rows_of(entries):
         name = entry_name(db, game, e)
         if name is None and not show_no_initials:
             continue
-        position = e["position"]
+        position = shown_positions[e["position"]]
         if name is None:
             any_unnamed = True
             color, shown = DIM, UNNAMED
@@ -304,11 +306,10 @@ def last_record_utc(db: Database, game: str) -> str:
     last = _last_event_utc(db, game)
     if last:
         return last
-    source = db.source(game)
-    if source is None or not source["current_observation_id"]:
+    best = db.current_top(game)
+    if best is None:
         return ""
-    observation = db.observation(source["current_observation_id"])
-    return db.first_seen_top(game, observation["top_score_text"] or "") or ""
+    return db.first_seen_top(game, best["score_text"]) or ""
 
 
 def _parse_utc(text: str) -> datetime:

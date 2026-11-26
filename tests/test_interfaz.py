@@ -254,12 +254,16 @@ class ScreensTest(HistoryTestCase):
         for row in screens["records"].rows:  # sin podio
             self.assertEqual([c[1] for c in row], [sc.FECHA, sc.JUEGO, sc.PUNTOS, sc.RESTO])
 
-    def test_jugador_debajo_de_la_fabrica_conserva_su_posicion(self):
-        self.write("demo", demo_file([(500, "AA"), (450, "QZ"), (300, "CC")]))
+    def test_jugador_debajo_de_la_fabrica_queda_primero(self):
+        # La fábrica se ignora: los puestos se renumeran y el mejor jugador es el 1º (y el récord).
+        self.write("demo", demo_file([(500, "AA"), (450, "QZ"), (300, "MN")]))
         self.scan()
-        screen = {s.key: s for s in build_screens(self.db, Players())}["juego:demo"]
-        self.assertEqual([[c[0] for c in row[:3]] for row in screen.rows], [["2.", "450", "QZ"]])
-        self.assertEqual(screen.rows[0][0][1], sc.PLATA)  # conserva el color de su posición
+        screens = {s.key: s for s in build_screens(self.db, Players())}
+        screen = screens["juego:demo"]
+        self.assertEqual([[c[0] for c in row[:3]] for row in screen.rows], [["1.", "450", "QZ"], ["2.", "300", "MN"]])
+        self.assertEqual([screen.rows[0][0][1], screen.rows[1][0][1]], [sc.ORO, sc.PLATA])
+        self.assertIn(["QZ", "1"], [[r[1][0], r[2][0]] for r in screens["ranking"].rows])
+        self.assertEqual([c[0] for c in screens["records"].rows[0][1:]], ["demo", "450", "QZ"])
 
     def test_ranking_paginado(self):
         for i in range(12):

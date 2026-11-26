@@ -172,7 +172,7 @@ class ScanTest(HistoryTestCase):
         pending = self.db.pending("demo")
         self.db.accept("demo", pending["id"])
         self.assertIsNone(self.db.pending("demo"))
-        self.assertEqual(leaders(self.db)[0].reason, "el máximo es una entrada de fábrica")
+        self.assertEqual(leaders(self.db)[0].reason, "solo tiene entradas de fábrica")
 
     def test_restauracion_a_b_a(self):
         a = demo_file([(900, "XY"), (500, "AA"), (400, "BB")])
@@ -190,6 +190,54 @@ class ScanTest(HistoryTestCase):
         entries = self.db.entries(self.db.source("democlon")["current_observation_id"])
         self.assertTrue(all(e["factory"] for e in entries))
         self.assertEqual(player_ranking(self.db), [])
+
+    def test_la_fabrica_se_ignora_para_el_primer_puesto(self):
+        # Como 1942 en la iMac: la fábrica arriba y el jugador debajo.
+        self.write("demo", demo_file([(500, "AA"), (400, "BB"), (250, "TC")]))
+        self.write("democlon", demo_file(FACTORY))  # solo fábrica: sigue sin titular
+        self.scan()  # línea base
+        by_game = {g.game: g for g in leaders(self.db)}
+        self.assertEqual((by_game["demo"].top_score, by_game["demo"].holders), ("250", ("TC",)))
+        self.assertEqual((by_game["democlon"].top_score, by_game["democlon"].holders, by_game["democlon"].reason),
+                         (None, (), "solo tiene entradas de fábrica"))
+        self.assertEqual([(r.initials, r.games) for r in player_ranking(self.db)], [("TC", ("demo",))])
+        events = recent_records(self.db)
+        self.assertEqual([(e["game"], e["new_top"], e["baseline"]) for e in events], [("demo", "250", True)])
+
+    def test_record_real_debajo_de_la_fabrica_cuenta_si_supera_al_real_anterior(self):
+        self.write("demo", demo_file([(500, "AA"), (400, "BB"), (250, "TC")]))
+        self.scan()
+        self.write("demo", demo_file([(500, "AA"), (400, "BB"), (300, "QZ")]))  # supera a TC, no a la fábrica
+        report = self.scan()
+        self.assertEqual(report.records, [("demo", "250", "300", ["QZ"])])
+        self.assertEqual(leaders(self.db)[0].holders, ("QZ",))
+        self.write("demo", demo_file([(500, "AA"), (300, "QZ"), (280, "MN")]))  # no supera al real: no es récord
+        self.assertEqual(self.scan().records, [])
+
+    def test_primer_record_real_sobre_una_tabla_de_fabrica(self):
+        self.write("democlon", demo_file(FACTORY))
+        self.scan()
+        self.write("democlon", demo_file([(500, "AA"), (400, "BB"), (120, "TC")]))
+        self.assertEqual(self.scan().records, [("democlon", None, "120", ["TC"])])
+
+    def test_perder_el_record_de_un_jugador_queda_pendiente_aunque_la_fabrica_siga(self):
+        self.write("demo", demo_file([(500, "AA"), (400, "BB"), (250, "TC")]))
+        self.scan()
+        self.write("demo", demo_file(FACTORY))  # se borró la memoria: el máximo (fábrica) no bajó
+        self.assertEqual(self.scan().pending, ["demo"])
+        self.assertEqual(leaders(self.db)[0].holders, ("TC",))
+
+    def test_nombrar_usa_el_puesto_sin_la_fabrica(self):
+        from arcade_hall_of_fame.naming import assign_name, player_rows
+
+        self.write("demo", demo_file([(500, "AA"), (250, "TC"), (100, "XY")]))
+        self.scan()
+        rows = player_rows(self.db, "demo")
+        self.assertEqual([(r.position, r.original_position, r.score_text, r.top) for r in rows],
+                         [(1, 2, "250", True), (2, 3, "100", False)])
+        self.assertEqual(assign_name(self.db, "demo", "ANA", "2026-11-25T12:00:00+00:00", position=2).score_text,
+                         "100")
+        self.assertEqual(assign_name(self.db, "demo", "NC", "2026-11-25T12:00:00+00:00").score_text, "250")
 
     def test_juego_sin_iniciales_no_suma(self):
         self.write("solotop", bytes([0x14, 0x00]))
@@ -507,7 +555,7 @@ class NamingTest(CliTest):
         table = self.run_cli("juego", "demo")
         self.assertIn("nombre puesto con 'nombrar' (original: AB)", table)
         self.assertRegex(table, r"1 +900 +NC")
-        self.assertRegex(table, r"2 +500 +AA")
+        self.assertRegex(table, r"- +500 +AA +fábrica, no cuenta \(puesto 2 en el juego\)")
         db = Database(self.db_path)
         self.assertEqual(db.record_name("demo", "900")["original_initials"], "AB")
         ranking = [(r.initials, r.count, r.games) for r in player_ranking(db)]

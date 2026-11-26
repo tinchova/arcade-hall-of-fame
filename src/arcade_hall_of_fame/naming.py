@@ -15,8 +15,12 @@ ejemplo, las que el juego propone por defecto). Se guardan las originales
 (``original_initials``) y el nombre solo se aplica a la fila de esa puntuación
 con esas iniciales; ``remove_name`` las devuelve.
 
+Las entradas de fábrica no se muestran ni se pueden nombrar, y los puestos se
+renumeran sin ellas (``storage.visible_positions``): el récord (1º) es la mejor
+fila de jugador aunque la fábrica tenga más puntos.
+
 Por defecto se nombra el récord (1º) del juego; ``select_row`` permite elegir
-otra fila por puesto (``position``) o por el nombre que se ve hoy
+otra fila por puesto (``position``, el que se muestra, sin la fábrica) o por el nombre que se ve hoy
 (``current_name``). Límite: dos filas empatadas en puntos con iniciales
 originales distintas no se pueden renombrar (la clave es juego y puntuación).
 
@@ -34,7 +38,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 from .models import HighScoreError
-from .storage import Database
+from .storage import Database, player_rows_of, player_top, visible_positions
 
 UNNAMED = "???"
 MAX_INITIALS = 12  # igual que un alias (players.MAX_ALIAS): entra en las columnas JUGADOR
@@ -66,12 +70,13 @@ class NamedRecord:
 class TableRow:
     """Fila de un jugador (no de fábrica) en la tabla vigente de un juego."""
     game: str
-    position: int
+    position: int  # puesto que se muestra, renumerado sin las entradas de fábrica
     score_text: str
     name: Optional[str]  # el que se muestra: el puesto a mano o las iniciales del juego
     original: Optional[str]  # iniciales guardadas por el juego
     assigned: bool  # tiene un nombre puesto a mano
     top: bool  # es el récord del juego
+    original_position: int = 0  # puesto en la tabla del juego, contando la fábrica
 
 
 def has_initials(entry) -> bool:
@@ -123,20 +128,25 @@ def _current(db: Database, game: str):
 
 
 def _current_top(db: Database, game: str):
+    """Tabla vigente y filas del récord (la mejor fila que no es de fábrica, con empates)."""
     observation, entries = _current(db, game)
-    top = observation["top_score_num"]
-    rows = [e for e in entries if top is not None and e["score_num"] == top]
-    if not rows:
+    best = player_top(entries)
+    if best is None:
+        if entries and all(e["factory"] for e in entries):
+            raise NamingError(f"{game}: la tabla vigente solo tiene entradas de fábrica")
         raise NamingError(f"{game}: el récord no tiene una puntuación numérica")
-    return observation, rows
+    rows = [e for e in player_rows_of(entries) if e["score_num"] == best["score_num"]]
+    return observation, entries, rows
 
 
-def _table_row(db: Database, game: str, observation, entry) -> TableRow:
+def _table_row(db: Database, game: str, entries, entry) -> TableRow:
     original = _original(entry)
     assigned = name_applies(db.record_name(game, entry["score_text"]), original)
-    top = observation["top_score_num"] is not None and entry["score_num"] == observation["top_score_num"]
-    return TableRow(game, entry["position"], entry["score_text"], entry_name(db, game, entry), original,
-                    assigned, top)
+    best = player_top(entries)
+    top = best is not None and entry["score_num"] == best["score_num"]
+    shown = visible_positions(entries).get(entry["position"], entry["position"])
+    return TableRow(game, shown, entry["score_text"], entry_name(db, game, entry), original,
+                    assigned, top, entry["position"])
 
 
 def unnamed_records(db: Database) -> List[UnnamedRecord]:
@@ -144,14 +154,14 @@ def unnamed_records(db: Database) -> List[UnnamedRecord]:
     result = []
     for source in db.sources():
         try:
-            observation, rows = _current_top(db, source["game"])
+            observation, _, rows = _current_top(db, source["game"])
         except NamingError:
             continue
-        if any(not e["factory"] and has_initials(e) for e in rows) or any(e["factory"] for e in rows):
+        if any(has_initials(e) for e in rows):
             continue
-        if db.record_name(source["game"], observation["top_score_text"]) is None:
-            result.append(UnnamedRecord(source["game"], observation["top_score_text"], observation["id"],
-                                        observation["detected_utc"]))
+        score = rows[0]["score_text"]
+        if db.record_name(source["game"], score) is None:
+            result.append(UnnamedRecord(source["game"], score, observation["id"], observation["detected_utc"]))
     return result
 
 
@@ -167,7 +177,7 @@ def player_rows(db: Database, game: Optional[str] = None) -> List[TableRow]:
             continue
         for entry in entries:
             if not entry["factory"] and (entry["score_text"] or "").strip():
-                result.append(_table_row(db, source["game"], observation, entry))
+                result.append(_table_row(db, source["game"], entries, entry))
     return result
 
 
@@ -186,6 +196,8 @@ def select_row(db: Database, game: str, position: Optional[int] = None, current_
                expected_score: Optional[str] = None) -> TableRow:
     """Elige la fila: por puesto, por nombre actual o, sin opciones, el récord (1º).
 
+    El puesto es el que se muestra, renumerado sin las entradas de fábrica.
+
     ``current_name`` es el nombre que se ve hoy (las iniciales del juego o el
     puesto a mano). Si varias filas lo tienen, hay que indicar el puesto o los
     puntos. ``expected_score`` es la puntuación que vio quien eligió: si no
@@ -193,21 +205,20 @@ def select_row(db: Database, game: str, position: Optional[int] = None, current_
     """
     expected = expected_score.strip() if expected_score is not None else None
     if position is None and current_name is None:
-        observation, rows = _current_top(db, game)
-        score = observation["top_score_text"]
+        observation, entries, rows = _current_top(db, game)
+        score = rows[0]["score_text"]
         if expected is not None and expected != score:
             raise NamingError(f"{game}: el récord vigente es {score}, no {expected}")
-        if any(e["factory"] for e in rows):
-            raise NamingError(f"{game}: el récord vigente ({score}) es una entrada de fábrica")
         originals = sorted({_original(e) or "" for e in rows})
         if len(originals) > 1:
             raise NamingError(f"{game}: el récord vigente ({score}) está empatado entre varias iniciales "
                               f"({', '.join(o or UNNAMED for o in originals)})")
-        return _table_row(db, game, observation, rows[0])
+        return _table_row(db, game, entries, rows[0])
 
     observation, entries = _current(db, game)
     if position is not None:
-        found = [e for e in entries if e["position"] == position]
+        shown = visible_positions(entries)
+        found = [e for e in player_rows_of(entries) if shown[e["position"]] == position]
         if not found:
             raise NamingError(f"{game}: la tabla vigente no tiene puesto {position}")
         entry = found[0]
@@ -230,13 +241,13 @@ def select_row(db: Database, game: str, position: Optional[int] = None, current_
                               "indicar --puesto o --puntos")
         entry = found[0]
     if entry["factory"]:
-        raise NamingError(f"{game}: el puesto {entry['position']} ({entry['score_text']}) es una entrada de fábrica")
+        raise NamingError(f"{game}: la fila {entry['score_text']} es una entrada de fábrica")
     tied = {_original(e) or "" for e in entries if not e["factory"] and e["score_text"] == entry["score_text"]}
     if len(tied) > 1:
-        raise NamingError(f"{game}: el puesto {entry['position']} ({entry['score_text']}) está empatado con otra "
+        raise NamingError(f"{game}: el puesto {visible_positions(entries)[entry['position']]} ({entry['score_text']}) está empatado con otra "
                           f"fila de iniciales distintas ({', '.join(sorted(o or UNNAMED for o in tied))}); "
                           "no se puede cambiar")
-    return _table_row(db, game, observation, entry)
+    return _table_row(db, game, entries, entry)
 
 
 def assign_name(db: Database, game: str, initials: str, now: str, origin: str = "comando",
