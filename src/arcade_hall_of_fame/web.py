@@ -27,9 +27,12 @@ para la red de casa y se protege así:
 
 * responde solo a clientes con dirección privada, de enlace local o del propio
   equipo (``192.168.x.x``, ``10.x.x.x``, ``172.16-31.x.x``, ``fe80::``,
-  ``127.0.0.1``...); a cualquier otro le devuelve 403;
+  ``127.0.0.1``...) o de Tailscale (``100.64.0.0/10``, ``fd7a:115c:a1e0::/48``:
+  quién entra por ahí lo decide la política del tailnet); a cualquier otro le
+  devuelve 403;
 * acepta solo un nombre de host que sea una dirección IP, ``localhost``, un
-  nombre ``.local`` o el nombre del equipo (contra el "DNS rebinding");
+  nombre ``.local``, un nombre MagicDNS de Tailscale (``*.ts.net``) o el nombre
+  del equipo (contra el "DNS rebinding");
 * en los envíos exige que ``Origin`` (o, si falta, ``Referer``) sea esta misma
   página: otra página abierta en el celular no puede enviar el formulario;
 * atiende solo ``GET /`` y los envíos ``POST /nombrar``, ``/quitar``, ``/alias``
@@ -90,19 +93,28 @@ class WebConfig:
     after_change: Callable[[Database], None] = lambda db: None  # p. ej., regenerar el protector
     qr_svg: str = ""  # QR con la dirección para el celular (se muestra en GLOBAL)
     addresses: Sequence[str] = ()  # direcciones para abrir la página
+    tailscale: Sequence[str] = ()  # direcciones por Tailscale (solo texto, no van en el QR)
 
 
 # --- Límites de acceso -----------------------------------------------------------
 
+TAILSCALE_NETWORKS = (ipaddress.ip_network("100.64.0.0/10"), ipaddress.ip_network("fd7a:115c:a1e0::/48"))
+
+
+def is_tailscale(ip) -> bool:
+    """Dirección del rango que usa Tailscale (CGNAT en IPv4, ULA propia en IPv6)."""
+    return any(ip in net for net in TAILSCALE_NETWORKS if net.version == ip.version)
+
+
 def allowed_client(address: str) -> bool:
-    """Solo la red local: direcciones privadas, de enlace local o del propio equipo."""
+    """Solo la red local (privadas, de enlace local o del propio equipo) o Tailscale."""
     try:
         ip = ipaddress.ip_address(address.split("%", 1)[0])
     except ValueError:
         return False
     if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
         ip = ip.ipv4_mapped
-    return ip.is_loopback or ip.is_link_local or (ip.is_private and not ip.is_unspecified)
+    return ip.is_loopback or ip.is_link_local or (ip.is_private and not ip.is_unspecified) or is_tailscale(ip)
 
 
 def _host_name(host_header: str) -> str:
@@ -113,7 +125,7 @@ def _host_name(host_header: str) -> str:
 
 
 def allowed_host(host_header: Optional[str]) -> bool:
-    """Nombre de host aceptable: IP, localhost, ``*.local`` o el nombre del equipo."""
+    """Nombre de host aceptable: IP, localhost, ``*.local``, ``*.ts.net`` (MagicDNS) o el nombre del equipo."""
     if not host_header:
         return False
     name = _host_name(host_header)
@@ -125,7 +137,7 @@ def allowed_host(host_header: Optional[str]) -> bool:
     except ValueError:
         pass
     own = socket.gethostname().lower()
-    return name in ("localhost", own, own.split(".")[0]) or name.endswith(".local")
+    return name in ("localhost", own, own.split(".")[0]) or name.endswith((".local", ".ts.net"))
 
 
 def same_origin(headers, host_header: str) -> bool:
@@ -229,7 +241,8 @@ button.sec{background:#000;color:#f43f5e}
 .nuevo{border:3px dashed #4c1d95;padding:10px 12px;margin-top:18px}
 .qr{margin-top:24px;border:3px solid #4c1d95;padding:12px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
 .qr svg{width:170px;height:170px}
-.qr .dir{color:#3de8ff;word-break:break-all;text-transform:none;letter-spacing:0}
+.qr .dir,.tailscale .dir{color:#3de8ff;word-break:break-all;text-transform:none;letter-spacing:0}
+.tailscale{margin-top:12px;border:3px solid #4c1d95;padding:12px}
 footer{color:#787878;font-size:13px;padding:0 16px 20px;text-align:center}
 @media (max-width:720px){
   .wrap{display:block;padding:12px}
@@ -258,10 +271,11 @@ def _hidden(**fields) -> str:
 
 def render_page(db: Database, names: Dict[str, str], file_players: Players, view: str = GLOBAL,
                 message: Optional[Tuple[str, str]] = None, qr_svg: str = "", addresses: Sequence[str] = (),
-                since: Optional[str] = None) -> str:
+                since: Optional[str] = None, tailscale: Sequence[str] = ()) -> str:
     """Página completa. ``view`` es ``GLOBAL`` (alias), ``UNREADABLE`` o el juego elegido.
 
-    ``since``: lo detectado después se marca como NUEVO.
+    ``since``: lo detectado después se marca como NUEVO. ``tailscale``: direcciones
+    por Tailscale, que se muestran en texto debajo del QR (el QR es la de la red local).
     """
     new_games, new_rows = new_marks(db, since)
     unreadable = db.unreadable()
@@ -306,19 +320,19 @@ def render_page(db: Database, names: Dict[str, str], file_players: Players, view
         kind, text = message
         out.append(f'<p class="msg {_e(kind)}" role="status">{_e(text)}</p>')
     if view == GLOBAL:
-        out.append(_global_html(db_aliases, file_players, players, rows, qr_svg, addresses))
+        out.append(_global_html(db_aliases, file_players, players, rows, qr_svg, addresses, tailscale))
     elif view == UNREADABLE:
         out.append(_unreadable_html(unreadable, names))
     else:
         fresh = {(score, initials) for game, score, initials in new_rows if game == view}
         out.append(_game_html(view, names.get(view, view), games[view], players, fresh,
                               view in new_games))
-    out.append("</main></div><footer>Solo funciona dentro de la red de casa.</footer></body></html>")
+    out.append("</main></div><footer>Solo funciona dentro de la red de casa (o por Tailscale).</footer></body></html>")
     return "".join(out)
 
 
 def _global_html(db_aliases: Dict[str, str], file_players: Players, players: Players, rows, qr_svg: str,
-                 addresses: Sequence[str]) -> str:
+                 addresses: Sequence[str], tailscale: Sequence[str] = ()) -> str:
     in_db = {a.upper() for a in db_aliases}
     file_only = {k: v for k, v in file_players.mapping.items() if k.upper() not in in_db}
     out = ["<h2>Global</h2>",
@@ -349,6 +363,9 @@ def _global_html(db_aliases: Dict[str, str], file_players: Players, players: Pla
     if qr_svg:
         out.append(f'<div class="qr">{qr_svg}<div><div class="sub">Escaneá para abrir en el celular</div>'
                    + "".join(f'<div class="dir">{_e(a)}</div>' for a in addresses) + "</div></div>")
+    if tailscale:
+        out.append('<div class="tailscale"><div class="sub">Desde fuera de casa, por Tailscale</div>'
+                   + "".join(f'<div class="dir">{_e(a)}</div>' for a in tailscale) + "</div>")
     return "".join(out)
 
 
@@ -448,7 +465,8 @@ class Handler(BaseHTTPRequestHandler):
         since, cookie = visit_window(self.headers.get("Cookie"), utc_now())
         games = sorted({s["game"] for s in db.sources()} | {r["game"] for r in db.unreadable()})
         self._send(status, render_page(db, self.config.names(db, games), self.config.file_players(), view, message,
-                                       self.config.qr_svg, self.config.addresses, since), cookie=cookie)
+                                       self.config.qr_svg, self.config.addresses, since,
+                                       self.config.tailscale), cookie=cookie)
 
     def do_GET(self) -> None:  # noqa: N802
         if not self._check():

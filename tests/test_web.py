@@ -136,7 +136,8 @@ class WebTest(unittest.TestCase):
         self.changes = []
         config = web.WebConfig(self.path, lambda d, games: {g: g.upper() + " TITULO" for g in games},
                                after_change=lambda d: self.changes.append(1), qr_svg="<svg>qr</svg>",
-                               addresses=["http://192.168.1.10:47474/"])
+                               addresses=["http://192.168.1.10:47474/"],
+                               tailscale=["http://100.101.102.103:47474/"])
         handler_log = web.Handler.log_message
         web.Handler.log_message = lambda *a: None  # sin registro en la salida de las pruebas
         self.addCleanup(setattr, web.Handler, "log_message", handler_log)
@@ -173,6 +174,8 @@ class WebTest(unittest.TestCase):
         self.assertIn("Sin leer (1)", page)
         self.assertIn("<svg>qr</svg>", page)
         self.assertIn("192.168.1.10:47474", page)
+        self.assertIn("Tailscale", page)
+        self.assertIn("100.101.102.103:47474", page)
         self.assertIn("hof_visita=", response.getheader("Set-Cookie"))
         _, page = self.request("GET", "/?ver=galaga")
         self.assertIn("500", page)
@@ -234,14 +237,44 @@ class WebTest(unittest.TestCase):
         self.assertEqual(self.changes, [])
 
     def test_clientes_y_hosts(self):
-        for ok in ("192.168.1.20", "10.0.0.5", "172.16.3.4", "127.0.0.1", "fe80::1", "::1", "::ffff:192.168.1.2"):
+        for ok in ("192.168.1.20", "10.0.0.5", "172.16.3.4", "127.0.0.1", "fe80::1", "::1", "::ffff:192.168.1.2",
+                   "100.64.24.66", "100.108.85.112", "100.127.255.254", "fd7a:115c:a1e0::1"):
             self.assertTrue(web.allowed_client(ok), ok)
-        for bad in ("8.8.8.8", "200.40.30.1", "0.0.0.0", "basura"):
+        for bad in ("8.8.8.8", "200.40.30.1", "0.0.0.0", "basura", "100.63.255.255", "100.128.0.1",
+                    "2606:4700::1111"):
             self.assertFalse(web.allowed_client(bad), bad)
-        for ok in ("192.168.1.10:47474", "localhost:47474", "mi-imac.local:47474", "[fe80::1]:47474"):
+        for ok in ("192.168.1.10:47474", "localhost:47474", "mi-imac.local:47474", "[fe80::1]:47474",
+                   "100.101.102.103:47474", "mi-imac.ejemplo.ts.net:47474", "[fd7a:115c:a1e0::1]:47474"):
             self.assertTrue(web.allowed_host(ok), ok)
-        for bad in ("", "evil.com", "192.168.1.10.evil.com:47474"):
+        for bad in ("", "evil.com", "192.168.1.10.evil.com:47474", "ts.net.evil.com", "evilts.net"):
             self.assertFalse(web.allowed_host(bad), bad)
+
+    def test_post_por_tailscale_exige_el_mismo_origen(self):
+        body = {"juego": "galaga", "puesto": "1", "puntos": "500", "nombre": "X"}
+        host = "mi-imac.ejemplo.ts.net:47474"
+        response, _ = self.request("GET", "/", headers={"Host": host})
+        self.assertEqual(response.status, 200)
+        response, _ = self.request("POST", "/nombrar", body, {"Host": host, "Origin": "http://otra.example"})
+        self.assertEqual(response.status, 403)
+        self.assertEqual(self.changes, [])
+        response, _ = self.request("POST", "/nombrar", body, {"Host": host, "Origin": f"http://{host}"})
+        self.assertEqual(response.status, 303)
+
+    def test_ip_de_tailscale(self):
+        import sys
+        import tempfile
+
+        from arcade_hall_of_fame import direccion
+
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp) / "tailscale.py"
+            fake.write_text("print('100.108.1.2')", encoding="utf-8")
+            orig = direccion.subprocess.run
+            direccion.subprocess.run = lambda cmd, **kw: orig([sys.executable, cmd[0]] + cmd[1:], **kw)
+            self.addCleanup(setattr, direccion.subprocess, "run", orig)
+            self.assertEqual(direccion.tailscale_ip([str(fake)]), "100.108.1.2")
+            fake.write_text("print('192.168.1.2')", encoding="utf-8")
+            self.assertIsNone(direccion.tailscale_ip([str(fake)]))
 
     def test_nuevo_desde_la_visita_anterior(self):
         first = "2026-11-26T10:00:00+00:00"

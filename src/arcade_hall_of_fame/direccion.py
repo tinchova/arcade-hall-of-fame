@@ -10,6 +10,10 @@ casa). Por eso se ofrecen dos direcciones:
   Sistema → Compartir → nombre del equipo). iPhone lo resuelve siempre; en
   Android depende de la versión y del navegador.
 
+Además, si la Mac está en un tailnet de Tailscale, su IP de Tailscale
+(``tailscale ip -4``) se muestra en texto en la página, para entrar desde fuera
+de casa. No va en el QR: el QR es para el celular conectado al wifi.
+
 El QR se genera con ``vendor/qrcodegen.py`` (Project Nayuki, MIT), sin
 dependencias externas.
 """
@@ -19,6 +23,7 @@ from __future__ import annotations
 import socket
 import subprocess
 import sys
+from pathlib import Path
 from typing import List, Optional
 
 from .vendor.qrcodegen import QrCode
@@ -63,6 +68,36 @@ def page_urls(port: int) -> List[str]:
     if name:
         urls.append(f"http://{name}:{port}/")
     return urls
+
+
+TAILSCALE_CLI = ("/usr/local/bin/tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale")
+
+
+def tailscale_ip(candidates=TAILSCALE_CLI) -> Optional[str]:
+    """IPv4 de Tailscale de este equipo (``tailscale ip -4``), o None si no está o no está conectado."""
+    import ipaddress
+    import shutil
+
+    found = [c for c in candidates if Path(c).is_file()] or [shutil.which("tailscale")]
+    for cli in filter(None, found):
+        try:
+            result = subprocess.run([cli, "ip", "-4"], capture_output=True, text=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        for line in result.stdout.split():
+            try:
+                ip = ipaddress.ip_address(line.strip())
+            except ValueError:
+                continue
+            if ip.version == 4 and ip in ipaddress.ip_network("100.64.0.0/10"):
+                return str(ip)
+    return None
+
+
+def tailscale_urls(port: int) -> List[str]:
+    """Dirección por Tailscale (solo texto en la página; no va en el QR)."""
+    ip = tailscale_ip()
+    return [f"http://{ip}:{port}/"] if ip else []
 
 
 def qr_matrix(text: str) -> List[List[bool]]:

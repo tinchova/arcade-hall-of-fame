@@ -124,12 +124,23 @@ Puerto fijo: **47474** (se cambia con `PUERTO=...`). Direcciones para abrirla de
 
 Para probarla sin instalar: `~/arcade-hall-of-fame/hof web` (Ctrl+C para cerrarla).
 
+### Desde fuera de casa, por Tailscale
+
+Si la Mac está en un tailnet de [Tailscale](https://tailscale.com/), la página también responde a los equipos del tailnet, sin abrir ningún puerto en el router:
+
+- `http://<IP de Tailscale de la Mac>:47474/` (la que da `tailscale ip -4`, del rango `100.x.y.z`), o
+- `http://<nombre de la Mac>.<tailnet>.ts.net:47474/`, con MagicDNS activado.
+
+Al arrancar, la página busca la IP de Tailscale (`/usr/local/bin/tailscale ip -4`, o la aplicación de Tailscale) y, si la hay, la muestra en texto debajo del QR. El QR sigue siendo la dirección de la red local, para el celular conectado al wifi. Si Tailscale se conecta después de arrancar la página, la dirección aparece al reiniciar el LaunchAgent (`launchctl kickstart -k gui/$(id -u)/com.arcade-hall-of-fame.web`).
+
+Quién del tailnet puede entrar lo decide la política de acceso del tailnet (ACL): la página no agrega cuentas propias. Para limitarla, permitir en la política solo el puerto 47474 de la Mac a los usuarios o equipos que corresponda.
+
 ### Límite de seguridad
 
 La página **no tiene cuentas ni contraseñas**: cualquiera conectado a la misma red (el wifi de casa) puede cambiar nombres y alias. Está pensada solo para eso, y se protege así:
 
-- escucha en el puerto 47474 y responde solo a direcciones de la red local (`192.168.x.x`, `10.x.x.x`, `172.16-31.x.x`, enlace local y el propio equipo); a cualquier otra le devuelve 403;
-- acepta solo pedidos dirigidos a una IP, a `localhost` o a un nombre `.local` (contra el "DNS rebinding": una página de Internet no puede usar el navegador del celular para hablarle);
+- escucha en el puerto 47474 y responde solo a direcciones de la red local (`192.168.x.x`, `10.x.x.x`, `172.16-31.x.x`, enlace local y el propio equipo) y a las de Tailscale (`100.64.0.0/10` y `fd7a:115c:a1e0::/48`); a cualquier otra le devuelve 403;
+- acepta solo pedidos dirigidos a una IP, a `localhost`, a un nombre `.local` o a un nombre MagicDNS de Tailscale (`.ts.net`) (contra el "DNS rebinding": una página de Internet no puede usar el navegador del celular para hablarle);
 - los envíos tienen que salir de la misma página (`Origin`/`Referer`): otra página abierta en el celular no puede mandar el formulario;
 - solo atiende la página y cuatro envíos (`/nombrar`, `/quitar`, `/alias`, `/alias/borrar`); no sirve archivos ni muestra otra cosa, y valida todo lo que recibe (tamaño, formato, juego, puesto y puntos de la fila, largo y caracteres del texto);
 - no usa JavaScript, y la página prohíbe cargar cualquier recurso externo (Content-Security-Policy).

@@ -233,7 +233,7 @@ def names_loader(args):
 
 def cmd_web(args, db: Database) -> int:
     """Página para el celular, solo en la red local: alias de jugadores y nombres de récords."""
-    from .direccion import page_urls, qr_svg
+    from .direccion import page_urls, qr_svg, tailscale_urls
     from .players import Players
     from .web import WebConfig, make_server
 
@@ -249,6 +249,9 @@ def cmd_web(args, db: Database) -> int:
     config.qr_svg = qr_svg(urls[0]) if urls else ""
     for url in urls or [f"http://<IP de este equipo>:{port}/"]:
         print(f"Página del Salón de la Fama: {url}  (solo red local)", flush=True)
+    config.tailscale = tailscale_urls(port) if args.direccion in ("0.0.0.0", "") else []
+    for url in config.tailscale:
+        print(f"Página del Salón de la Fama por Tailscale: {url}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
