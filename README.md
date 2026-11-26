@@ -161,7 +161,7 @@ Toca solo `~/ES-DE/custom_systems/es_systems.xml` (antes deja una copia con la f
 
 ### Apagar la pantalla sin uso
 
-ES-DE no deja que macOS apague la pantalla. `contrib/macos/instalar_apagar_pantalla.sh` instala un LaunchAgent que, tras 30 minutos sin teclado ni mouse (`APAGAR_TRAS=segundos` para cambiarlo), apaga solo la pantalla con `pmset displaysleepnow`, sin suspender la Mac: la página y Tailscale siguen andando. Detalles y límites (joysticks) en [INTEGRACION_ESDE.md](docs/INTEGRACION_ESDE.md#apagar-la-pantalla-sin-uso).
+ES-DE no deja que macOS apague la pantalla. `contrib/macos/instalar_apagar_pantalla.sh` instala un LaunchAgent que, tras 30 minutos sin teclado ni mouse (`APAGAR_TRAS=segundos` para cambiarlo), apaga solo la pantalla con `pmset displaysleepnow`, sin suspender la Mac: la página y Tailscale siguen andando. Con un juego abierto (RetroArch) no la apaga. Detalles y límites (joysticks) en [INTEGRACION_ESDE.md](docs/INTEGRACION_ESDE.md#apagar-la-pantalla-sin-uso).
 
 ## Uso actual
 

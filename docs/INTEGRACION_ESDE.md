@@ -26,8 +26,9 @@ Con ES-DE abierto, macOS nunca apaga la pantalla: ES-DE tiene la aserción `Prev
 
 - Lee el tiempo sin uso de `HIDIdleTime` (`ioreg -c IOHIDSystem`, en nanosegundos). Las aserciones de ES-DE no lo reinician; solo lo reinicia el uso real.
 - Apaga una vez por período sin uso: guarda la hora del apagado en `~/Library/Application Support/arcade-hall-of-fame/apagar_pantalla.estado` y no vuelve a apagar hasta que haya uso y pase otro período completo. Así, si la pantalla se enciende sin tocar nada, no se apaga cada minuto.
+- Con un juego abierto no apaga la pantalla, aunque pasen los 30 minutos: mientras corra RetroArch (`pgrep -x RetroArch`; otros procesos con `JUEGOS="RetroArch otro"`), no hace nada y el registro lo anota una vez ("juego abierto (RetroArch), no se apaga"). Al cerrar el juego, el tiempo sin uso se cuenta desde el cierre, así que no se apaga enseguida. Sirve sobre todo por los joysticks (ver abajo).
 - `--prueba` solo informa qué haría, sin apagar ni guardar nada: sirve para probar la lógica con un umbral corto (`contrib/macos/apagar_pantalla.sh --prueba 5`).
-- Joysticks: `HIDIdleTime` cuenta los eventos que macOS trata como teclado y mouse. Un encoder arcade que se presenta como teclado cuenta como uso. Un joystick USB genérico (página HID 1, uso 4 o 5, sin controlador) probablemente **no** lo reinicia, porque macOS no lo trata como actividad del usuario. En la iMac no se pudo comprobar: el 2026-11-26 no había ningún joystick USB conectado (solo el receptor Logitech de teclado y mouse) y ES-DE estaba configurado solo con teclado. Si se conecta uno, probar `--prueba 5` mientras se lo mueve: si los segundos sin uso no vuelven a cero, jugar más de 30 minutos solo con el joystick apagaría la pantalla (se enciende con una tecla o el mouse).
+- Joysticks: `HIDIdleTime` cuenta los eventos que macOS trata como teclado y mouse. Un encoder arcade que se presenta como teclado cuenta como uso. Un joystick USB genérico (página HID 1, uso 4 o 5, sin controlador) probablemente **no** lo reinicia, porque macOS no lo trata como actividad del usuario. En la iMac no se pudo comprobar: el 2026-11-26 no había ningún joystick USB conectado (solo el receptor Logitech de teclado y mouse) y ES-DE estaba configurado solo con teclado. Si se conecta uno, probar `--prueba 5` mientras se lo mueve: si los segundos sin uso no vuelven a cero, el joystick no cuenta. Dentro de un juego no importa (con RetroArch abierto no se apaga); en el menú de ES-DE, usarlo solo con el joystick más de 30 minutos apagaría la pantalla, que se enciende con una tecla o el mouse.
 
 Instalación (LaunchAgent `com.arcade-hall-of-fame.pantalla`, que corre el script cada 60 segundos):
 
@@ -39,7 +40,7 @@ APAGAR_TRAS=3600 ~/arcade-hall-of-fame/contrib/macos/instalar_apagar_pantalla.sh
 ~/arcade-hall-of-fame/contrib/macos/instalar_apagar_pantalla.sh --desinstalar
 ```
 
-El registro (`~/Library/Logs/arcade-hall-of-fame-pantalla.log`) anota solo los apagados.
+El registro (`~/Library/Logs/arcade-hall-of-fame-pantalla.log`) anota solo los apagados y los períodos en que no apagó por un juego abierto.
 
 ## Volver atrás en la iMac
 
