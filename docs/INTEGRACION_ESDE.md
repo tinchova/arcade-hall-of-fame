@@ -17,6 +17,11 @@ Si la página web está instalada (`instalar_web.sh` reinstala el protector con 
 
 ## Volver atrás en la iMac
 
+**Página web y sistema "Salón de la Fama"**, instalados en la iMac el 2026-11-26: LaunchAgent `com.arcade-hall-of-fame.web` (puerto 47474, `http://Arcade.local:47474/` o `http://192.168.1.10:47474/`), protector reinstalado con `WEB_PUERTO=47474` (imagen del QR) y el sistema en `~/ES-DE/custom_systems/es_systems.xml` con la entrada `~/ROMs/salondelafama/Poner nombres.sh`. Antes no existía ningún `es_systems.xml` propio (la carpeta `custom_systems` estaba vacía), así que no hubo nada que copiar; `es_settings.xml` no se tocó. Para que aparezca el sistema hay que reiniciar ES-DE.
+
+Para quitarlo: `contrib/macos/instalar_esde.sh --desinstalar` (deja una copia del `es_systems.xml` antes de editarlo; o borrar el archivo, que solo tiene este sistema), `contrib/macos/instalar_web.sh --desinstalar` y, para sacar el QR de las imágenes, `contrib/macos/instalar_protector.sh`.
+
+
 1. Quitar el LaunchAgent: `~/arcade-hall-of-fame/contrib/macos/instalar_protector.sh --desinstalar`.
 2. Restaurar la configuración de ES-DE **con ES-DE cerrado** (si está abierto, la pisa al salir): `cp -p ~/ES-DE/settings/es_settings.xml.bak-20261125-214536 ~/ES-DE/settings/es_settings.xml`. Alternativa sin cerrar ES-DE: en el menú, SCREENSAVER TYPE → VIDEO y USE CUSTOM IMAGES desactivado.
 3. Opcional: borrar la carpeta de imágenes `~/Library/Application Support/arcade-hall-of-fame/protector` y el registro `~/Library/Logs/arcade-hall-of-fame-protector.log`.
