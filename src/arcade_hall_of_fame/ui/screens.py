@@ -20,9 +20,9 @@ from ..storage import Database
 # eso las líneas de barrido son del mismo color (no se dibujan).
 #
 # Regla única, igual en la ventana y en las imágenes del protector:
-# * tablas con posiciones: 1º ORO, 2º PLATA, 3º BRONCE y del 4º en adelante
-#   RESTO, en la posición y en el nombre del jugador;
-# * puntos siempre PUNTOS (blanco); nombre de juego siempre JUEGO (celeste);
+# * tablas con posiciones: las filas del 1º, 2º y 3º van enteras en ORO, PLATA y
+#   BRONCE (posición, jugador, puntos o récords, juegos y nota); del 4º en adelante
+#   posición y jugador RESTO, puntos PUNTOS (blanco) y juego JUEGO (celeste);
 # * últimos récords: jugador RESTO, fecha FECHA, juego JUEGO y puntos PUNTOS.
 BG = "#000000"        # fondo
 SCANLINE = BG         # líneas de barrido: desactivadas sobre negro puro
@@ -73,6 +73,12 @@ def plural(count: int, singular: str, plural_form: str) -> str:
 
 def rank_color(position: int) -> str:
     return PODIUM[position - 1] if 1 <= position <= len(PODIUM) else RESTO
+
+
+def row_color(position: int, default: str) -> str:
+    """Color de una celda que no es posición ni jugador: el del puesto en el podio
+    (la fila va entera de ese color) o ``default`` del 4º en adelante."""
+    return PODIUM[position - 1] if 1 <= position <= len(PODIUM) else default
 
 
 def ordinal(position: int) -> str:
@@ -133,7 +139,8 @@ def ranking_screens(db: Database, players: Players, names: GameNames,
     ranking = player_ranking(db, players)
     rows = [
         [(ordinal(r.position), rank_color(r.position)), (r.initials, rank_color(r.position)),
-         (str(r.count), PUNTOS), (games_summary(sorted((names.name(g) for g in r.games), key=str.lower)), JUEGO)]
+         (str(r.count), row_color(r.position, PUNTOS)),
+         (games_summary(sorted((names.name(g) for g in r.games), key=str.lower)), row_color(r.position, JUEGO))]
         for r in ranking
     ]
     notes: List[Cell] = []
@@ -200,7 +207,10 @@ def game_screen(db: Database, game: str, players: Players, names: GameNames,
             color, shown = DIM, UNNAMED
         else:
             color, shown = rank_color(position), players.name(name)
-        rows.append([(ordinal(position), color), (e["score_text"], PUNTOS), (shown, color), ("", DIM)])
+        podium = name is not None
+        rows.append([(ordinal(position), color),
+                     (e["score_text"], row_color(position, PUNTOS) if podium else PUNTOS),
+                     (shown, color), ("", row_color(position, DIM) if podium else DIM)])
         if len(rows) == ROWS_PER_PAGE:
             break
     if not rows:

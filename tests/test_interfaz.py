@@ -232,14 +232,24 @@ class ScreensTest(HistoryTestCase):
     def test_regla_de_colores(self):
         self.assertEqual([sc.rank_color(p) for p in range(1, 7)],
                          [sc.ORO, sc.PLATA, sc.BRONCE, sc.RESTO, sc.RESTO, sc.RESTO])
+        self.assertEqual([sc.row_color(p, sc.PUNTOS) for p in range(1, 6)],
+                         [sc.ORO, sc.PLATA, sc.BRONCE, sc.PUNTOS, sc.PUNTOS])
         self.write("demo", demo_file([(900, "XY"), (800, "QZ"), (700, "MN")]))
+        # Cuatro juegos más con distinto primero, para tener un 4º y 5º en el ranking.
+        for i, initials in enumerate(["XY", "QZ", "MN", "AB", "CD"]):
+            for _ in range(5 - i):
+                name = f"{initials.lower()}{_}"
+                (self.db_dir / f"{name}.xml").write_bytes((self.db_dir / "demo.xml").read_bytes())
+                self.write(name, demo_file([(900, initials), (50, "EF"), (10, "GH")]))
         self.scan()
         screens = {s.key: s for s in build_screens(self.db, Players())}
-        for row, color in zip(screens["juego:demo"].rows, (sc.ORO, sc.PLATA, sc.BRONCE), strict=True):
-            self.assertEqual((row[0][1], row[1][1], row[2][1]), (color, sc.PUNTOS, color))
-        ranking = screens["ranking"].rows[0]
-        self.assertEqual((ranking[0][1], ranking[1][1], ranking[2][1], ranking[3][1]),
-                         (sc.ORO, sc.ORO, sc.PUNTOS, sc.JUEGO))
+        # Podio: la fila entera del color del puesto.
+        self.assertEqual([[c[1] for c in row] for row in screens["juego:demo"].rows],
+                         [[c] * 4 for c in (sc.ORO, sc.PLATA, sc.BRONCE)])
+        # Ranking: podio entero de su color; del 4º en adelante, la regla general.
+        expected = [[c] * 4 for c in (sc.ORO, sc.PLATA, sc.BRONCE)]
+        expected += [[sc.RESTO, sc.RESTO, sc.PUNTOS, sc.JUEGO]] * 2
+        self.assertEqual([[c[1] for c in row] for row in screens["ranking"].rows], expected)
         for row in screens["records"].rows:  # sin podio
             self.assertEqual([c[1] for c in row], [sc.FECHA, sc.JUEGO, sc.PUNTOS, sc.RESTO])
 
