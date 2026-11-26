@@ -60,6 +60,15 @@ class AliasTest(unittest.TestCase):
         shown = {r.position: players.name(r.name) for r in player_rows(self.db, "galaga")}
         self.assertEqual(shown, {1: "TINCHOVA", 2: "PEDRO", 3: "TINCHOVA", 4: "ABC"})
 
+    def test_juegos_que_guardan_solo_el_maximo(self):
+        from arcade_hall_of_fame.naming import keeps_only_top
+
+        add_table(self.db, "pacman", [(1400, None)])
+        add_table(self.db, "unafila", [(900, "TCH")])
+        add_table(self.db, "galaga", [(500, None), (300, None)])
+        self.assertEqual([keeps_only_top(self.db, g) for g in ("pacman", "unafila", "galaga", "nohay")],
+                         [True, False, False, False])
+
     def test_validacion_de_alias(self):
         self.assertEqual(clean_alias_initials(" tch "), "TCH")
         self.assertEqual(clean_alias_name("  ana   maria "), "ANA MARIA")
@@ -180,6 +189,10 @@ class WebTest(unittest.TestCase):
         _, page = self.request("GET", "/?ver=galaga")
         self.assertIn("500", page)
         self.assertIn('name="puesto" value="2"', page)
+        self.assertNotIn("guarda solo el récord máximo", page)  # tabla con varias filas
+        _, page = self.request("GET", "/?ver=pacman")
+        self.assertIn('class="aviso"', page)  # una sola fila sin iniciales: solo guarda el máximo
+        self.assertIn("las que no lo superan no quedan guardadas", page)
         _, page = self.request("GET", "/?ver=sin-leer")
         self.assertIn("RARO TITULO", page)
         self.assertIn("sin definición en hi2txt-xml", page)

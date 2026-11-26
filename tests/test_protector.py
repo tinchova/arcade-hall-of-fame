@@ -196,6 +196,46 @@ class ProtectorTest(HistoryTestCase):
         self.run_cli("nombrar", "solotop", "NC", "--protector", str(missing))
         self.assertFalse(missing.exists())
 
+    def test_qr_solo_con_records_sin_nombre(self):
+        urls = ["http://192.168.1.5:47474", "http://arcade.local:47474"]
+        patcher = mock.patch("arcade_hall_of_fame.direccion.page_urls", return_value=urls)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        protector.esde_running.return_value = False  # los sobrantes se borran enseguida
+        self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
+        self.run_protector("--web-puerto", "47474")
+        self.assertNotIn("hof-web.png", self.pngs())  # todos con iniciales: sin QR
+        self.write("solotop", bytes([0x14, 0x00]))
+        self.run_protector("--web-puerto", "47474")
+        self.assertIn("hof-web.png", self.pngs())
+        screens = cli.build_screens_for_protector(cli.build_parser().parse_args(
+            ["--base", str(self.db_path), "--definiciones", str(self.db_dir), "--jugadores", str(self.players_path),
+             "protector", "--salida", str(self.out), "--dat", str(self.out.parent / "sin-dat"),
+             "--web-puerto", "47474"]), self.db)
+        web = screens[-1]
+        self.assertEqual((web.key, web.title, web.subtitle), ("web", "RECORD SIN NOMBRE", "SOLOTOP 1400"))
+        self.assertEqual(web.notes[0][0], "ESCANEA PARA PONER TU NOMBRE")
+        self.assertEqual(web.notes[1][0], "192.168.1.5:47474")
+        self.assertTrue(web.qr)
+        # Con nombre, la pantalla deja de generarse y la imagen se borra como cualquier sobrante.
+        text = self.run_cli("nombrar", "solotop", "NC", "--protector", str(self.out))
+        self.assertIn("1 borrada", text)
+        self.assertNotIn("hof-web.png", self.pngs())
+
+    def test_qr_nombra_hasta_tres_records_y_el_resto(self):
+        from arcade_hall_of_fame.naming import UnnamedRecord
+        from arcade_hall_of_fame.names import GameNames
+
+        missing = [UnnamedRecord(g, s, 1, "") for g, s in
+                   [("mspacman", "18310"), ("puckman", "9000"), ("galaga", "50"), ("dkong", "7"), ("frogger", "1")]]
+        with mock.patch("arcade_hall_of_fame.direccion.page_urls", return_value=["http://10.0.0.2:1"]),                 mock.patch.object(cli, "unnamed_records", return_value=missing):
+            web = cli.web_screen(1, self.db, GameNames())
+            self.assertEqual(web.title, "RECORDS SIN NOMBRE")
+            self.assertEqual(web.subtitle, "MSPACMAN 18310, PUCKMAN 9000, GALAGA 50 +2")
+            self.assertIsNone(cli.web_screen(None, self.db))
+        with mock.patch.object(cli, "unnamed_records", return_value=[]):
+            self.assertIsNone(cli.web_screen(1, self.db))
+
     def run_cli(self, *args) -> str:
         self.db.close()
         out = io.StringIO()

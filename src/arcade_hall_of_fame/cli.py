@@ -545,27 +545,38 @@ def build_screens_for_protector(args, db: Database):
     status = f"{games}  ACTUALIZADO {local_stamp(last)}" if last else games
     for screen in screens:
         screen.status = status
-    web = web_screen(getattr(args, "web_puerto", None))
+    web = web_screen(getattr(args, "web_puerto", None), db, getattr(screens, "names", None))
     if web is not None:
         web.status = status
         screens.append(web)  # al final de la vuelta
     return screens
 
 
-def web_screen(port: Optional[int]):
-    """Pantalla con el QR de la página web, o None si no se pidió o no hay red."""
+def web_screen(port: Optional[int], db: Database, names=None):
+    """Pantalla con el QR de la página web, solo si hay récords sin nombre (los de ``sin-nombre``).
+
+    Nombra los primeros récords que faltan y ``+N``. Devuelve None si no se pidió,
+    no hay red o todos los récords tienen nombre: la imagen deja de mostrarse y
+    se trata como cualquier pantalla que sobra.
+    """
     if not port:
         return None
     from .direccion import page_urls, qr_matrix
-    from .ui.screens import HEADER, SUBTITLE, Screen
+    from .names import GameNames
+    from .ui.layout import GRID_COLS
+    from .ui.screens import HEADER, SUBTITLE, Screen, games_summary
 
+    missing = unnamed_records(db)
+    if not missing:
+        return None
     urls = page_urls(port)
     if not urls:
         return None
-    notes = [(urls[0].replace("http://", ""), HEADER)]
-    if len(urls) > 1:
-        notes.append((urls[1].replace("http://", ""), SUBTITLE))
-    return Screen("web", "PONER NOMBRES", "ESCANEA CON EL CELULAR", (), [], notes, qr=qr_matrix(urls[0]))
+    names = names or GameNames()
+    records = [f"{names.name(r.game)} {r.score_text}" for r in missing]
+    title = "RECORD SIN NOMBRE" if len(missing) == 1 else "RECORDS SIN NOMBRE"
+    notes = [("ESCANEA PARA PONER TU NOMBRE", HEADER), (urls[0].replace("http://", ""), SUBTITLE)]
+    return Screen("web", title, games_summary(records, GRID_COLS, 3), (), [], notes, qr=qr_matrix(urls[0]))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -623,7 +634,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="mostrar también los récords sin iniciales ni nombre, como ??? (ocultos por defecto)")
     p.add_argument("--tamano", type=parse_size, default=(1920, 1080), help="tamaño de las imágenes (1920x1080)")
     p.add_argument("--web-puerto", type=int, default=None,
-                   help="agregar una imagen con el QR de la página web en este puerto (por ejemplo 47474)")
+                   help="agregar una imagen con el QR de la página web en este puerto (por ejemplo 47474), "
+                        "solo si hay récords sin nombre")
     p.add_argument("--compactar", action="store_true",
                    help="borrar ya las imágenes sobrantes (si ES-DE está abierto, por defecto quedan como relleno "
                         "hasta la primera generación pasados 10 minutos; usar con el protector de ES-DE cerrado)")

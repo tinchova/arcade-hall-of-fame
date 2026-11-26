@@ -259,6 +259,7 @@ class ScreenList(list):
     """Lista de pantallas que además sabe cuántos juegos tienen tabla (``games``)."""
 
     games = 0
+    names: Optional[GameNames] = None  # nombres de los juegos con que se armaron
 
 
 @dataclass
@@ -411,6 +412,7 @@ def build_screens(db: Database, players: Players, names: Optional[GameNames] = N
     for number, total, page in mosaic_pages(rest, options.per_mosaic, options.mosaics, rotation):
         sequence.append(mosaic_screen(number, total, page, media))
     sequence.games = len(cards)
+    sequence.names = names
     status = status_line(db, len(cards))
     for screen in sequence:
         screen.status = status

@@ -165,6 +165,19 @@ def unnamed_records(db: Database) -> List[UnnamedRecord]:
     return result
 
 
+def keeps_only_top(db: Database, game: str) -> bool:
+    """El juego guarda solo el puntaje máximo, sin tabla ni iniciales (como Pac-Man).
+
+    Se deduce de lo que devolvió la definición para la tabla vigente: una sola
+    fila y sin iniciales. No hay lista fija de juegos.
+    """
+    try:
+        _, entries = _current(db, game)
+    except NamingError:
+        return False
+    return len(entries) == 1 and not has_initials(entries[0])
+
+
 def player_rows(db: Database, game: Optional[str] = None) -> List[TableRow]:
     """Todas las filas de jugadores (sin las de fábrica) de las tablas vigentes."""
     result = []

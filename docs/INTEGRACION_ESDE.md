@@ -16,7 +16,7 @@
 
 ## Imagen con el QR de la página
 
-Si la página web está instalada (`instalar_web.sh` reinstala el protector con `WEB_PUERTO=47474`), el protector agrega una imagen "PONER NOMBRES / ESCANEA CON EL CELULAR" con el QR de la dirección actual (`http://<IP>:47474/`) y, abajo, la dirección `.local` de la Mac. La IP se detecta en cada generación: si la Mac cambia de red, la imagen se regenera en el siguiente escaneo.
+Si la página web está instalada (`instalar_web.sh` reinstala el protector con `WEB_PUERTO=47474`), el protector agrega una imagen con el QR de la dirección actual (`http://<IP>:47474/`), solo mientras haya récords sin nombre (los de `sin-nombre`, por ejemplo un récord nuevo de Ms. Pac-Man, que no guarda iniciales): título "RECORD SIN NOMBRE" (o "RECORDS"), los primeros tres récords con su puntuación y `+N`, y abajo "ESCANEA PARA PONER TU NOMBRE" con la dirección. Los récords con iniciales no cuentan. Si todos tienen nombre, `hof-web.png` no se genera y se trata como sobrante (regla de abajo). En la página el QR está siempre. La IP se detecta en cada generación: si la Mac cambia de red, la imagen se regenera en el siguiente escaneo.
 
 ## Apagar la pantalla sin uso
 

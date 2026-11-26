@@ -61,7 +61,8 @@ from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from .models import HighScoreError
-from .naming import MAX_INITIALS, NamingError, assign_name, clean_initials, player_rows, remove_name
+from .naming import (MAX_INITIALS, NamingError, assign_name, clean_initials, keeps_only_top, player_rows,
+                     remove_name)
 from .players import (MAX_ALIAS, MAX_ALIAS_INITIALS, AliasError, Players, check_printable, clean_alias_initials,
                       clean_alias_name)
 from .scanner import utc_now
@@ -221,6 +222,7 @@ main{flex:1;min-width:0}
 .selector{display:none}
 h2{color:#3de8ff;font-size:24px;border-bottom:3px solid #3de8ff;padding-bottom:4px;margin:0 0 6px}
 .sub{color:#a78bfa;font-size:15px;margin:0 0 10px}
+.aviso{background:#3a2a00;border:1px solid #ffb300;color:#ffe082;padding:10px 12px;border-radius:6px;font-size:15px;margin:0 0 12px;text-transform:none;letter-spacing:0}
 .ayuda{color:#9e9e9e;font-size:14px;margin:0 0 12px;text-transform:none;letter-spacing:0}
 .fila{border-bottom:2px solid #2a1257;padding:10px 0}
 .pos{color:#9e9e9e;display:inline-block;min-width:2.4em}
@@ -326,7 +328,7 @@ def render_page(db: Database, names: Dict[str, str], file_players: Players, view
     else:
         fresh = {(score, initials) for game, score, initials in new_rows if game == view}
         out.append(_game_html(view, names.get(view, view), games[view], players, fresh,
-                              view in new_games))
+                              view in new_games, keeps_only_top(db, view)))
     out.append("</main></div><footer>Solo funciona dentro de la red de casa (o por Tailscale).</footer></body></html>")
     return "".join(out)
 
@@ -393,9 +395,14 @@ def _unreadable_html(unreadable, names: Dict[str, str]) -> str:
 
 
 def _game_html(game: str, title: str, rows, players: Players, fresh: Set[Tuple[str, str]] = frozenset(),
-               new_game: bool = False) -> str:
+               new_game: bool = False, only_top: bool = False) -> str:
     tag = '<span class="nuevo-tag">NUEVO</span>'
-    out = [f"<h2>{_e(title)}{tag if new_game else ''}</h2>",
+    out = [f"<h2>{_e(title)}{tag if new_game else ''}</h2>"]
+    if only_top:
+        out.append('<p class="aviso" role="note">Este juego guarda solo el récord máximo, sin iniciales. '
+                   "Solo se registra una partida cuando supera el récord; las que no lo superan no quedan "
+                   "guardadas.</p>")
+    out += [
            '<p class="ayuda">Todas las filas de jugadores. Un nombre puesto a una fila pasa por arriba del alias '
            f"de sus iniciales (hasta {MAX_INITIALS} caracteres; si coincide con un alias, se muestra el alias). "
            "Las filas sin nombre (???) no se muestran ni suman.</p>"]
