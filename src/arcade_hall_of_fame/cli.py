@@ -141,8 +141,11 @@ def cmd_name(args, db: Database) -> int:
         if args.iniciales:
             print("Con --quitar no se indican iniciales.", file=sys.stderr)
             return 2
-        score = remove_name(db, args.juego)
-        print(f"{args.juego}: el récord {score} quedó otra vez sin nombre ({UNNAMED}).")
+        score, original = remove_name(db, args.juego)
+        if original:
+            print(f"{args.juego}: el récord {score} vuelve a las iniciales originales del juego: {original}.")
+        else:
+            print(f"{args.juego}: el récord {score} quedó otra vez sin nombre ({UNNAMED}).")
         refresh_protector_after_naming(args, db)
         return 0
     if not args.iniciales:
@@ -153,7 +156,11 @@ def cmd_name(args, db: Database) -> int:
     if source is not None and source["current_observation_id"]:
         observation = db.observation(source["current_observation_id"])
         row = db.record_name(args.juego, observation["top_score_text"])
-        previous = row["initials"] if row else None
+        if row is not None:
+            previous = row["initials"]
+        else:
+            top = [e for e in db.entries(observation["id"]) if e["score_num"] == observation["top_score_num"]]
+            previous = next((e["initials"].strip() for e in top if (e["initials"] or "").strip()), None)
     record = assign_name(db, args.juego, args.iniciales, utc_now(), "comando", args.puntos)
     name = db.record_name(record.game, record.score_text)["initials"]
     change = f" (antes: {previous})" if previous and previous != name else ""
@@ -230,8 +237,9 @@ def cmd_game(args, db: Database) -> int:
             notes.append("fábrica")
         elif name is None:
             notes.append("sin nombre")
-        elif not (e["initials"] or "").strip():
-            notes.append("nombre puesto con 'nombrar'")
+        elif name != e["initials"]:
+            original = (e["initials"] or "").strip()
+            notes.append("nombre puesto con 'nombrar'" + (f" (original: {original})" if original else ""))
         rows.append([str(e["position"]), e["score_text"], name or (e["initials"] or ""), ", ".join(notes)])
     print(f"{args.nombre}: tabla vigente desde {local_time(observation['detected_utc'])}, "
           f"última lectura {local_time(source['last_seen_utc'])}")
@@ -448,7 +456,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_pending)
     p = sub.add_parser("sin-nombre", help="récords vigentes sin iniciales a los que falta ponerles nombre")
     p.set_defaults(func=cmd_unnamed)
-    p = sub.add_parser("nombrar", help="poner iniciales al récord vigente de un juego que no las tiene")
+    p = sub.add_parser("nombrar", help="poner o cambiar las iniciales del récord vigente de un juego")
     p.add_argument("juego")
     p.add_argument("iniciales", nargs="?")
     p.add_argument("--puntos", help="puntuación esperada: falla si el récord vigente es otro")

@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 APP_NAME = "arcade-hall-of-fame"
 
 SCHEMA = """
@@ -114,6 +114,12 @@ CREATE TABLE record_names (
 );
 """
 
+# Agregado en la versión 4: iniciales que traía el récord cuando se le cambió el
+# nombre (NULL si no tenía). El nombre solo se aplica a filas con esas iniciales.
+SCHEMA_V4 = """
+ALTER TABLE record_names ADD COLUMN original_initials TEXT
+"""
+
 BASELINE_NOTE = "línea base"
 NEW_GAME_NOTE = "primer récord de un juego nuevo"
 
@@ -155,7 +161,7 @@ class Database:
 
     def _migrate(self, version: int) -> None:
         """Crea o actualiza el esquema en una sola transacción (todo o nada)."""
-        steps = [(1, SCHEMA), (2, SCHEMA_V2), (3, SCHEMA_V3)]
+        steps = [(1, SCHEMA), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4)]
         self.conn.execute("BEGIN")
         try:
             for target, script in steps:
@@ -163,7 +169,7 @@ class Database:
                     for statement in script.split(";"):
                         if statement.strip():
                             self.conn.execute(statement)
-            if version > 0:
+            if 0 < version < 3:
                 self._backfill_new_game_events()
             self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             self.conn.commit()
@@ -301,14 +307,15 @@ class Database:
             self.conn.execute("DELETE FROM unreadable WHERE game = ?", (game,))
 
     def set_record_name(self, game: str, score_text: str, initials: str, observation_id: Optional[int],
-                        now: str, origin: str) -> None:
+                        now: str, origin: str, original_initials: Optional[str] = None) -> None:
         with self.conn:
             self.conn.execute(
-                "INSERT INTO record_names (game, score_text, initials, observation_id, named_utc, origin) "
-                "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(game, score_text) DO UPDATE SET "
+                "INSERT INTO record_names (game, score_text, initials, observation_id, named_utc, origin, "
+                "original_initials) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game, score_text) DO UPDATE SET "
                 "initials = excluded.initials, observation_id = excluded.observation_id, "
-                "named_utc = excluded.named_utc, origin = excluded.origin",
-                (game, score_text, initials, observation_id, now, origin),
+                "named_utc = excluded.named_utc, origin = excluded.origin, "
+                "original_initials = excluded.original_initials",
+                (game, score_text, initials, observation_id, now, origin, original_initials),
             )
 
     def delete_record_name(self, game: str, score_text: str) -> bool:

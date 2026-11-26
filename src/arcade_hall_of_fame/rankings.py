@@ -82,6 +82,16 @@ def player_ranking(db: Database, players: Optional[Players] = None) -> List[Play
     return ranking
 
 
+def _with_name(named, holders: List[str]) -> List[str]:
+    """Titulares de un evento con el nombre puesto a mano, si corresponde a esas iniciales."""
+    if named is None:
+        return holders
+    original = named["original_initials"]
+    if (original is None and not holders) or (original is not None and holders == [original]):
+        return [named["initials"]]
+    return holders
+
+
 def recent_records(db: Database, limit: int = 10, players: Optional[Players] = None) -> List[Dict]:
     """Últimos récords batidos (y primeros récords de juegos nuevos, sin anterior).
 
@@ -93,12 +103,9 @@ def recent_records(db: Database, limit: int = 10, players: Optional[Players] = N
     for e in db.events(limit):
         previous = list(json.loads(e["previous_holders"]))
         new = list(json.loads(e["new_holders"]))
-        if not previous and e["previous_top_text"] is not None:
-            named = db.record_name(e["game"], e["previous_top_text"])
-            previous = [named["initials"]] if named else []
-        if not new:
-            named = db.record_name(e["game"], e["new_top_text"])
-            new = [named["initials"]] if named else []
+        if e["previous_top_text"] is not None:
+            previous = _with_name(db.record_name(e["game"], e["previous_top_text"]), previous)
+        new = _with_name(db.record_name(e["game"], e["new_top_text"]), new)
         result.append({
             "game": e["game"],
             "detected_utc": e["detected_utc"],

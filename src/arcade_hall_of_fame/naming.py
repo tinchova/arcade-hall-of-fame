@@ -8,6 +8,11 @@ que lo presenta como ``???``) hasta que alguien le pone nombre.
 El nombre queda en la base (tabla ``record_names``), asociado al juego y a esa
 puntuación exacta. Si después el récord cambia, el nuevo queda sin nombre.
 
+También sirve para reemplazar las iniciales de un récord que sí las tiene (por
+ejemplo, las que el juego propone por defecto). Se guardan las originales
+(``original_initials``) y el nombre solo se aplica a la fila de esa puntuación
+con esas iniciales; ``remove_name`` las devuelve.
+
 Este módulo no imprime ni lee argumentos: lo usa el comando ``nombrar`` y podrá
 usarlo otra interfaz (por ejemplo, una página para el celular) sin cambios.
 ``unnamed_records`` da la lista para elegir, y ``assign_name`` recibe la
@@ -19,7 +24,7 @@ from __future__ import annotations
 
 import unicodedata
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from .models import HighScoreError
 from .storage import Database
@@ -61,14 +66,23 @@ def clean_initials(text: str) -> str:
     return value
 
 
+def _original(entry) -> Optional[str]:
+    return entry["initials"].strip() if has_initials(entry) else None
+
+
+def name_applies(row, original: Optional[str]) -> bool:
+    """El nombre guardado corresponde a una fila con esas iniciales originales."""
+    return row is not None and row["original_initials"] == original
+
+
 def entry_name(db: Database, game: str, entry) -> Optional[str]:
-    """Iniciales de la fila: las del juego o, si no tiene, el nombre puesto a mano."""
-    if has_initials(entry):
-        return entry["initials"]
+    """Nombre de la fila: el puesto a mano si lo hay; si no, las iniciales del juego."""
     if entry["factory"]:
         return None
     row = db.record_name(game, entry["score_text"])
-    return row["initials"] if row else None
+    if name_applies(row, _original(entry)):
+        return row["initials"]
+    return entry["initials"] if has_initials(entry) else None
 
 
 def _current_top(db: Database, game: str):
@@ -101,7 +115,11 @@ def unnamed_records(db: Database) -> List[UnnamedRecord]:
 
 def assign_name(db: Database, game: str, initials: str, now: str, origin: str = "comando",
                 expected_score: Optional[str] = None) -> UnnamedRecord:
-    """Pone nombre al récord vigente de ``game``. Si ya tenía uno, lo reemplaza."""
+    """Pone nombre al récord vigente de ``game``. Si ya tenía uno, lo reemplaza.
+
+    Si el récord tiene iniciales guardadas por el juego, el nombre las reemplaza
+    (para esa puntuación y esas iniciales) y las originales quedan guardadas.
+    """
     value = clean_initials(initials)
     observation, rows = _current_top(db, game)
     score = observation["top_score_text"]
@@ -109,15 +127,22 @@ def assign_name(db: Database, game: str, initials: str, now: str, origin: str = 
         raise NamingError(f"{game}: el récord vigente es {score}, no {expected_score.strip()}")
     if any(e["factory"] for e in rows):
         raise NamingError(f"{game}: el récord vigente ({score}) es una entrada de fábrica")
-    if any(has_initials(e) for e in rows):
-        raise NamingError(f"{game}: el récord vigente ({score}) ya tiene iniciales guardadas por el juego")
-    db.set_record_name(game, score, value, observation["id"], now, origin)
+    originals = sorted({_original(e) or "" for e in rows})
+    if len(originals) > 1:
+        raise NamingError(f"{game}: el récord vigente ({score}) está empatado entre varias iniciales "
+                          f"({', '.join(o or UNNAMED for o in originals)})")
+    db.set_record_name(game, score, value, observation["id"], now, origin, originals[0] or None)
     return UnnamedRecord(game, score, observation["id"], observation["detected_utc"])
 
 
-def remove_name(db: Database, game: str) -> str:
-    """Quita el nombre del récord vigente de ``game``; devuelve su puntuación."""
+def remove_name(db: Database, game: str) -> Tuple[str, Optional[str]]:
+    """Quita el nombre del récord vigente de ``game``.
+
+    Devuelve la puntuación y las iniciales originales (None si no tenía).
+    """
     observation, _rows = _current_top(db, game)
-    if not db.delete_record_name(game, observation["top_score_text"]):
-        raise NamingError(f"{game}: el récord vigente ({observation['top_score_text']}) no tiene nombre puesto")
-    return observation["top_score_text"]
+    score = observation["top_score_text"]
+    row = db.record_name(game, score)
+    if row is None or not db.delete_record_name(game, score):
+        raise NamingError(f"{game}: el récord vigente ({score}) no tiene nombre puesto")
+    return score, row["original_initials"]

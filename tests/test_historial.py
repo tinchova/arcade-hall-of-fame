@@ -253,8 +253,23 @@ class ScanTest(HistoryTestCase):
         db = Database(path)
         self.addCleanup(db.close)
         self.assertEqual(db.unreadable(), [])
-        self.assertEqual(db.conn.execute("PRAGMA user_version").fetchone()[0], 3)
+        self.assertEqual(db.conn.execute("PRAGMA user_version").fetchone()[0], 4)
         self.assertEqual(db.record_names(), [])
+
+    def test_base_de_la_version_3_conserva_los_nombres(self):
+        from arcade_hall_of_fame.storage import SCHEMA_V2, SCHEMA_V3
+
+        path = Path(self.db_path).with_name("v3.sqlite3")
+        conn = sqlite3.connect(str(path))
+        conn.executescript(SCHEMA + SCHEMA_V2 + SCHEMA_V3)
+        conn.execute("INSERT INTO record_names VALUES ('solotop', '1400', 'NC', NULL, 'h', 'comando')")
+        conn.execute("PRAGMA user_version = 3")
+        conn.commit()
+        conn.close()
+        db = Database(path)
+        self.addCleanup(db.close)
+        row = db.record_name("solotop", "1400")
+        self.assertEqual((row["initials"], row["original_initials"]), ("NC", None))
 
     def test_base_de_la_version_2_agrega_records_de_juegos_nuevos(self):
         """Al actualizar, el primer récord de un juego aparecido después de la línea base cuenta."""
@@ -413,7 +428,6 @@ class NamingTest(CliTest):
         self.assertNotIn("demo", text)
         self.assertIn("solotop  1400", self.run_cli("pendientes"))
         self.assertIn("el récord vigente es 1400, no 99", self.run_cli("nombrar", "solotop", "nc", "--puntos", "99"))
-        self.assertIn("ya tiene iniciales", self.run_cli("nombrar", "demo", "NC"))
         self.assertIn("no hay una tabla registrada para otro", self.run_cli("nombrar", "otro", "NC"))
         self.assertIn("no pueden estar vacías", self.run_cli("nombrar", "solotop", "  "))
         self.assertIn("queda a nombre de NC", self.run_cli("nombrar", "solotop", "nc", "--puntos", "1400"))
@@ -440,6 +454,41 @@ class NamingTest(CliTest):
         self.assertIn("no tiene nombre puesto", self.run_cli("nombrar", "solotop", "--quitar"))
         self.run_cli("nombrar", "solotop", "NC")
         self.assertIn("quedó otra vez sin nombre", self.run_cli("nombrar", "solotop", "--quitar"))
+        self.db = Database(self.db_path)
+
+    def test_cambiar_las_iniciales_de_un_record(self):
+        self.db.close()
+        for name in ("juego1", "juego2"):
+            (self.db_dir / f"{name}.xml").write_bytes(DEMO_BCD)
+        self.write("demo", demo_file([(900, "AB"), (500, "AA"), (400, "BB")]))
+        self.write("juego1", demo_file([(800, "AB"), (700, "CD"), (10, "EF")]))
+        self.write("juego2", demo_file([(600, "XY"), (600, "QZ"), (10, "EF")]))  # empate
+        self.run_cli("escanear", str(self.saves))
+        self.assertIn("queda a nombre de NC (antes: AB)", self.run_cli("nombrar", "demo", "nc", "--puntos", "900"))
+        self.assertIn("empatado entre varias iniciales (QZ, XY)", self.run_cli("nombrar", "juego2", "NC"))
+        self.assertNotIn("demo", self.run_cli("sin-nombre"))
+        table = self.run_cli("juego", "demo")
+        self.assertIn("nombre puesto con 'nombrar' (original: AB)", table)
+        self.assertRegex(table, r"1 +900 +NC")
+        self.assertRegex(table, r"2 +500 +AA")
+        db = Database(self.db_path)
+        self.assertEqual(db.record_name("demo", "900")["original_initials"], "AB")
+        ranking = [(r.initials, r.count, r.games) for r in player_ranking(db)]
+        self.assertEqual(ranking, [("AB", 1, ("juego1",)), ("NC", 1, ("demo",)), ("QZ", 1, ("juego2",)),
+                                   ("XY", 1, ("juego2",))])
+        players = Players.from_data({"jugadores": {"Ana": ["NC", "AB"]}})
+        self.assertEqual([(r.initials, r.count) for r in player_ranking(db, players)][0], ("Ana", 2))
+        db.close()
+        # Si el récord cambia (aunque vuelva a decir AB), el nuevo conserva sus iniciales.
+        self.write("demo", demo_file([(950, "AB"), (900, "AB"), (500, "AA")]))
+        self.assertIn("Récord batido en demo: 900 -> 950 (AB)", self.run_cli("escanear", str(self.saves)))
+        self.assertRegex(self.run_cli("juego", "demo"), r"2 +900 +NC")  # la fila de 900 conserva el nombre
+        self.assertIn("900 (NC)", self.run_cli("records"))
+        self.assertIn("no tiene nombre puesto", self.run_cli("nombrar", "demo", "--quitar"))
+        self.run_cli("nombrar", "demo", "NC")
+        self.assertIn("vuelve a las iniciales originales del juego: AB",
+                      self.run_cli("nombrar", "demo", "--quitar"))
+        self.assertRegex(self.run_cli("juego", "demo"), r"1 +950 +AB")
         self.db = Database(self.db_path)
 
     def test_no_se_nombra_un_record_de_fabrica(self):
