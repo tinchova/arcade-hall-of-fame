@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import List, Optional, Sequence, Tuple
+from datetime import datetime, timedelta, timezone
+from typing import Any, List, Optional, Sequence, Tuple
 
 from . import pixelfont as pf
 from ..names import GameNames
 from ..naming import UNNAMED, entry_name
-from ..players import Players
+from ..players import Players, name_key
 from ..rankings import leaders, player_ranking, recent_records
 from ..storage import Database
 
@@ -65,6 +65,20 @@ class Screen:
     page: str = ""
     status: str = ""  # línea de estado: juegos registrados y último escaneo
     qr: Optional[List[List[bool]]] = None  # código QR en lugar de la tabla (pantalla de la página web)
+    marquee: Any = None  # media.Picture: logo del juego en lugar del título en texto
+    shot: Any = None  # media.Picture: captura al costado de la tabla
+    tiles: Optional[List["Tile"]] = None  # pantalla mosaico: una celda por juego en lugar de la tabla
+
+
+@dataclass
+class Tile:
+    """Celda de la pantalla mosaico: logo (o nombre) del juego, el 1º y sus puntos."""
+
+    game: str
+    title: str
+    marquee: Any = None
+    holder: Cell = ("", DIM)
+    score: Cell = ("", PUNTOS)
 
 
 def plural(count: int, singular: str, plural_form: str) -> str:
@@ -239,26 +253,164 @@ def status_line(db: Database, count: int) -> str:
     return f"{plural(count, 'JUEGO', 'JUEGOS')}  ULTIMO ESCANEO {when}"
 
 
+class ScreenList(list):
+    """Lista de pantallas que además sabe cuántos juegos tienen tabla (``games``)."""
+
+    games = 0
+
+
+@dataclass
+class GameCard:
+    """Datos de un juego para elegir los destacados."""
+
+    game: str
+    screen: Screen
+    players: int  # jugadores distintos de la tabla, con su nombre final
+    last_record: str  # hora UTC del récord vigente más reciente ("" si no se sabe)
+    recent: bool  # tiene un récord nuevo dentro de los días de destacado
+
+
+@dataclass(frozen=True)
+class RotationOptions:
+    """Cuántos juegos destacar y cómo armar los mosaicos (todo configurable desde el comando)."""
+
+    featured: int = 8  # máximo de juegos destacados, con su pantalla
+    featured_days: int = 7  # un récord nuevo deja al juego destacado durante estos días
+    per_mosaic: int = 6  # juegos por pantalla mosaico (grilla de 3 x 2)
+    mosaics: int = 3  # tope de pantallas mosaico por vuelta (rotan entre generaciones)
+
+
+def distinct_players(db: Database, game: str, players: Players) -> int:
+    """Jugadores distintos en la tabla vigente, con el nombre final (alias o nombre puesto)."""
+    source = db.source(game)
+    if source is None or not source["current_observation_id"]:
+        return 0
+    found = set()
+    for e in db.entries(source["current_observation_id"]):
+        name = entry_name(db, game, e)
+        if name:
+            found.add(name_key(players.name(name)))
+    return len(found)
+
+
+def _last_event_utc(db: Database, game: str) -> str:
+    row = db.conn.execute("SELECT MAX(detected_utc) FROM record_events WHERE game = ?", (game,)).fetchone()
+    return row[0] if row and row[0] else ""
+
+
+def last_record_utc(db: Database, game: str) -> str:
+    """Hora del último récord del juego (batido o de juego nuevo) o, si no hay, la primera
+    vez que se vio su récord vigente; "" si no se sabe."""
+    last = _last_event_utc(db, game)
+    if last:
+        return last
+    source = db.source(game)
+    if source is None or not source["current_observation_id"]:
+        return ""
+    observation = db.observation(source["current_observation_id"])
+    return db.first_seen_top(game, observation["top_score_text"] or "") or ""
+
+
+def _parse_utc(text: str) -> datetime:
+    try:
+        value = datetime.fromisoformat(text)
+    except (TypeError, ValueError):
+        return datetime(1970, 1, 1, tzinfo=timezone.utc)
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def choose_featured(cards: Sequence[GameCard], limit: int) -> Tuple[List[GameCard], List[GameCard]]:
+    """(destacados, resto).
+
+    Primero los juegos con un récord nuevo (el más reciente primero); después,
+    hasta completar ``limit``, los de más jugadores distintos y, para desempatar,
+    el récord más reciente. El resto queda por orden alfabético, para los mosaicos.
+    """
+    limit = max(0, limit)
+    by_recency = sorted(cards, key=lambda c: (-_parse_utc(c.last_record).timestamp(), c.screen.title.lower()))
+    featured = [c for c in by_recency if c.recent][:limit]
+    chosen = {c.game for c in featured}
+    others = sorted((c for c in cards if c.game not in chosen),
+                    key=lambda c: (-c.players, -_parse_utc(c.last_record).timestamp(), c.screen.title.lower()))
+    featured += others[:limit - len(featured)]
+    chosen = {c.game for c in featured}
+    rest = sorted((c for c in cards if c.game not in chosen), key=lambda c: (c.screen.title.lower(), c.game))
+    return featured, rest
+
+
+def mosaic_pages(rest: Sequence[GameCard], per_page: int, max_pages: int,
+                 rotation: int = 0) -> List[Tuple[int, int, List[GameCard]]]:
+    """Páginas de mosaico de esta vuelta: (número, total, juegos).
+
+    Si hay más páginas que ``max_pages``, se muestran ``max_pages`` seguidas a
+    partir de una que avanza con ``rotation`` (una vez por generación), así que
+    en vueltas sucesivas aparecen todas.
+    """
+    per_page = max(1, per_page)
+    pages = [list(rest[i:i + per_page]) for i in range(0, len(rest), per_page)]
+    total = len(pages)
+    if total == 0 or max_pages <= 0:
+        return []
+    if total <= max_pages:
+        return [(i + 1, total, page) for i, page in enumerate(pages)]
+    start = (rotation * max_pages) % total
+    return [((start + k) % total + 1, total, pages[(start + k) % total]) for k in range(max_pages)]
+
+
+def _tile(card: GameCard, media) -> Tile:
+    """Celda con el 1º de la tabla (la primera fila que se muestra) y sus puntos."""
+    tile = Tile(card.game, card.screen.title, media.marquee(card.game) if media is not None else None)
+    if card.screen.rows:
+        first = card.screen.rows[0]
+        name, color = first[2]
+        tile.holder = (name, DIM if color == DIM else ORO)
+        tile.score = (first[1][0], PUNTOS)
+    return tile
+
+
+def mosaic_screen(number: int, total: int, cards: Sequence[GameCard], media=None) -> Screen:
+    return Screen(f"mosaico:{number}", "MÁS RÉCORDS", f"{number} / {total}", (), [], [], "",
+                  tiles=[_tile(c, media) for c in cards])
+
+
 def build_screens(db: Database, players: Players, names: Optional[GameNames] = None,
-                  games_between_ranking: int = 4, show_no_initials: bool = False) -> List[Screen]:
-    """Secuencia de rotación: ranking, récords y juegos, volviendo al ranking cada tanto.
+                  show_no_initials: bool = False, options: Optional[RotationOptions] = None,
+                  media=None, rotation: int = 0, now: Optional[datetime] = None) -> List[Screen]:
+    """Secuencia de rotación: TOP GLOBAL, ÚLTIMOS RÉCORDS, los juegos destacados (cada
+    uno con su pantalla) y las pantallas mosaico con el resto de los juegos.
 
     No se muestran las entradas de fábrica (un juego que solo tiene esas no
     aparece) ni los récords sin iniciales que todavía no tienen nombre, salvo
     que se pida ``show_no_initials``. Todo queda guardado en la base igual.
+    ``media`` (``media.Media``) da los marquees y capturas; sin él, todo en texto.
     """
     names = names or GameNames()
+    options = options or RotationOptions()
+    now = now or datetime.now(timezone.utc)
+    since = now - timedelta(days=options.featured_days)
     names.set_games(s["game"] for s in db.sources())
     ranking = ranking_screens(db, players, names, show_no_initials)
-    sequence: List[Screen] = list(ranking) + [records_screen(db, players, names, show_no_initials=show_no_initials)]
-    games = [g for g in (game_screen(db, s["game"], players, names, show_no_initials) for s in db.sources())
-             if g is not None]
-    games.sort(key=lambda screen: screen.title.lower())
-    for i, screen in enumerate(games):
-        if i and i % games_between_ranking == 0:
-            sequence.append(ranking[0])
-        sequence.append(screen)
-    status = status_line(db, len(games))
+    sequence = ScreenList(ranking)
+    sequence.append(records_screen(db, players, names, show_no_initials=show_no_initials))
+    cards = []
+    for source in db.sources():
+        game = source["game"]
+        screen = game_screen(db, game, players, names, show_no_initials)
+        if screen is None:
+            continue
+        event = _last_event_utc(db, game)
+        recent = options.featured_days > 0 and bool(event) and _parse_utc(event) >= since
+        cards.append(GameCard(game, screen, distinct_players(db, game, players), last_record_utc(db, game), recent))
+    featured, rest = choose_featured(cards, options.featured)
+    for card in featured:
+        if media is not None:
+            card.screen.marquee = media.marquee(card.game)
+            card.screen.shot = media.shot(card.game)
+        sequence.append(card.screen)
+    for number, total, page in mosaic_pages(rest, options.per_mosaic, options.mosaics, rotation):
+        sequence.append(mosaic_screen(number, total, page, media))
+    sequence.games = len(cards)
+    status = status_line(db, len(cards))
     for screen in sequence:
         screen.status = status
     return sequence

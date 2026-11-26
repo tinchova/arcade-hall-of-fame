@@ -10,10 +10,12 @@ que se puede desactivar.
 
 from __future__ import annotations
 
+import base64
 import sys
 from typing import Callable, Dict, List, Optional, Tuple
 
 from . import pixelfont as pf
+from . import png
 from .layout import GRID_COLS, GRID_LINES, layout, scale_for
 from .screens import BG, FRAME, SUBTITLE, Screen
 
@@ -39,6 +41,7 @@ class ArcadeApp:
         self.index = 0
         self.paused = False
         self.images: Dict[Tuple[str, str, int], object] = {}
+        self.pictures: Dict[Tuple, object] = {}  # marquees y capturas ya convertidos para Tk
         self.pending: List[str] = []
         self.rotate_job: Optional[str] = None
         self.elapsed_ms = 0
@@ -118,8 +121,35 @@ class ArcadeApp:
             self.images[key] = image
         return image
 
+    def picture_image(self, picture, w: int, h: int):
+        """PhotoImage de una imagen escalada, o None si Tk no la acepta.
+
+        Se prueba PPM binario (lo más rápido) y, si esa versión de Tk no lo lee,
+        PNG en base64 (Tk 8.6 y posteriores lo traen incorporado)."""
+        key = (repr(picture), w, h)
+        if key not in self.pictures:
+            data = picture.pixels(w, h)
+            image = None
+            if data is not None:
+                for fmt, blob in (("ppm", lambda: b"P6 %d %d 255\n" % (w, h) + data),
+                                  ("png", lambda: base64.b64encode(png.encode(w, h, data)))):
+                    try:
+                        image = self.tk.PhotoImage(data=blob(), format=fmt)
+                        break
+                    except self.tk.TclError:
+                        image = None
+            if len(self.pictures) > 64:
+                self.pictures.clear()
+            self.pictures[key] = image
+        return self.pictures[key]
+
     def draw_op(self, op) -> None:
-        if op[0] == "rect":
+        if op[0] == "image":
+            _, x, y, w, h, picture = op
+            image = self.picture_image(picture, w, h)
+            if image is not None:
+                self.canvas.create_image(x, y, image=image, anchor="nw")
+        elif op[0] == "rect":
             _, x, y, w, h, color = op
             self.canvas.create_rectangle(x, y, x + w, y + h, fill=color, width=0)
         elif op[0] == "text":

@@ -200,11 +200,13 @@ def refresh_protector_after_naming(args, db: Database) -> None:
     if options is None:
         print("Las imágenes del protector se actualizan en el próximo escaneo (o con el comando protector).")
         return
+    defaults = build_parser().parse_args(["protector", "--salida", str(out)])
     protector_args = argparse.Namespace(
         salida=str(out), carpeta=None, tamano=tuple(options["tamano"]),
         mostrar_sin_iniciales=options["mostrar_sin_iniciales"], gamelist=options["gamelist"],
         dat=options["dat"], definiciones=options["definiciones"], jugadores=options["jugadores"],
-        web_puerto=options.get("web_puerto"))
+        web_puerto=options.get("web_puerto"), base=args.base,
+        **{key: options.get(key, getattr(defaults, key)) for key in ROTATION_OPTIONS})
     update_protector(protector_args, db)
 
 
@@ -349,14 +351,61 @@ def parse_size(text: str):
     return width, height
 
 
-def screen_builder(args, db: Database):
-    """Devuelve una función que arma las pantallas con los nombres de los juegos."""
+# Opciones de la rotación (destacados, mosaicos e imágenes), comunes a pantalla y protector.
+ROTATION_OPTIONS = ("destacados", "dias_destacado", "mosaico", "mosaicos", "medios", "sin_imagenes")
+
+
+def add_rotation_options(p) -> None:
+    p.add_argument("--destacados", type=int, default=8,
+                   help="máximo de juegos destacados, cada uno con su pantalla (8)")
+    p.add_argument("--dias-destacado", type=int, default=7,
+                   help="días que un juego con récord nuevo queda destacado (7; 0: ninguno por récord nuevo)")
+    p.add_argument("--mosaico", type=int, default=6, help="juegos por pantalla mosaico (6, grilla de 3 x 2)")
+    p.add_argument("--mosaicos", type=int, default=3,
+                   help="tope de pantallas mosaico por vuelta; si hay más, rotan entre generaciones (3)")
+    p.add_argument("--medios", default=os.environ.get("ARCADE_HOF_MEDIOS"),
+                   help="carpeta de medios de ES-DE (por defecto, la de es_settings.xml o "
+                        "~/ES-DE/downloaded_media); se leen marquees, screenshots y titlescreens")
+    p.add_argument("--sin-imagenes", action="store_true", help="no mostrar marquees ni capturas (todo en texto)")
+
+
+def rotation_options(args):
+    from .ui.screens import RotationOptions
+
+    return RotationOptions(featured=args.destacados, featured_days=args.dias_destacado,
+                           per_mosaic=args.mosaico, mosaics=args.mosaicos)
+
+
+def media_for(args):
+    """Medios de ES-DE para las pantallas, o None si se pidió todo en texto.
+
+    El sistema es la carpeta del gamelist (``gamelists/fbneo/gamelist.xml`` → ``fbneo``) si
+    existe entre los medios; si no, ``fbneo``.
+    El resultado escalado se guarda en ``cache-medios`` junto a la base.
+    """
+    if args.sin_imagenes:
+        return None
+    from .ui.media import Media, esde_media_dir
+
+    root = Path(os.path.expanduser(args.medios)) if args.medios else esde_media_dir()
+    candidates = ([Path(args.gamelist).parent.name] if args.gamelist else []) + ["fbneo"]
+    system = next((c for c in candidates if c and (root / c).is_dir()), "fbneo")
+    return Media(root, system, Path(args.base).parent / "cache-medios")
+
+
+def screen_builder(args, db: Database, rotation=None):
+    """Devuelve una función que arma las pantallas con los nombres de los juegos.
+
+    ``rotation`` da el número de generación para rotar los mosaicos; por defecto,
+    cada llamada es una generación nueva (la ventana Tk rearma las pantallas en
+    cada escaneo).
+    """
     from .fetch_names import DEFAULT_DIR as DEFAULT_DATS
     from .names import from_files
     from .ui.screens import build_screens
 
     dats = [Path(d) for d in (args.dat or [])] or [DEFAULT_DATS]
-    cache = {}
+    cache = {"calls": 0}
 
     def build():
         # Los nombres se leen una vez (el DAT de FBNeo pesa varios MB); solo se
@@ -367,7 +416,10 @@ def screen_builder(args, db: Database):
             cache["games"] = set(games)
         # Los alias se releen cada vez: se pueden cambiar desde la página web.
         players = load_players(Path(args.jugadores), db)
-        return build_screens(db, players, cache["names"], show_no_initials=args.mostrar_sin_iniciales)
+        generation = rotation() if rotation is not None else cache["calls"]
+        cache["calls"] += 1
+        return build_screens(db, players, cache["names"], show_no_initials=args.mostrar_sin_iniciales,
+                             options=rotation_options(args), media=media_for(args), rotation=generation)
 
     return build
 
@@ -436,12 +488,18 @@ def update_protector(args, db: Database) -> None:
         from .direccion import page_urls
 
         urls = page_urls(web_port)  # si cambia la IP (otra red), cambia el QR
+    rotation = {key: getattr(args, key) for key in ROTATION_OPTIONS}
+    # El día cuenta en el estado: los destacados por récord nuevo vencen y los mosaicos
+    # rotan de un día para otro (solo se reescriben las imágenes que cambian).
+    media = media_for(args)
+    media_root = str(media.root) if media is not None and media.root is not None else None
     state = data_state(db, (width, height, args.mostrar_sin_iniciales, args.gamelist, args.dat,
-                            str(Path(args.jugadores).resolve()), urls))
+                            str(Path(args.jugadores).resolve()), urls, sorted(rotation.items()), media_root,
+                            today().isoformat()))
     options = {"tamano": [width, height], "mostrar_sin_iniciales": bool(args.mostrar_sin_iniciales),
                "gamelist": args.gamelist, "dat": args.dat,
                "definiciones": str(Path(args.definiciones).resolve()), "jugadores": str(Path(args.jugadores).resolve()),
-               "web_puerto": web_port}
+               "web_puerto": web_port, **rotation}
     from .protector import boot_id
 
     report = generate(lambda: build_screens_for_protector(args, db), Path(args.salida), width, height, state, options,
@@ -460,22 +518,28 @@ def update_protector(args, db: Database) -> None:
                   "copia del ranking (ES-DE puede estar mostrándolas); se borran en el próximo arranque")
 
 
+def today():
+    from datetime import date
+
+    return date.today()
+
+
 def build_screens_for_protector(args, db: Database):
     from .ui.screens import local_stamp, plural
 
-    screens = screen_builder(args, db)()
+    # Una generación por día: los mosaicos que no entran en una vuelta rotan a diario.
+    screens = screen_builder(args, db, rotation=lambda: today().toordinal())()
     # La línea de estado muestra el último cambio (no el último escaneo), para que
     # las imágenes solo cambien cuando cambian los datos.
     last = db.last_change()
-    count = sum(1 for s in screens if s.key.startswith("juego:"))
-    games = plural(count, "JUEGO", "JUEGOS")
+    games = plural(screens.games, "JUEGO", "JUEGOS")
     status = f"{games}  ACTUALIZADO {local_stamp(last)}" if last else games
     for screen in screens:
         screen.status = status
     web = web_screen(getattr(args, "web_puerto", None))
     if web is not None:
         web.status = status
-        screens.insert(min(len(screens), 2), web)  # después del ranking y los últimos récords
+        screens.append(web)  # al final de la vuelta
     return screens
 
 
@@ -535,6 +599,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--prueba", action="store_true", help="comprobar Tk y generar las pantallas sin abrir ventana")
     p.add_argument("--capturas", help="guardar PNG de cada pantalla en esta carpeta, sin abrir ventana")
     p.add_argument("--tamano", type=parse_size, default=(1920, 1080), help="tamaño de capturas y prueba (1920x1080)")
+    add_rotation_options(p)
     p.set_defaults(func=cmd_screen)
     p = sub.add_parser("protector", help="generar los PNG para el protector de pantalla de ES-DE")
     p.add_argument("--salida", required=not os.environ.get("ARCADE_HOF_PROTECTOR"),
@@ -553,6 +618,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--compactar", action="store_true",
                    help="borrar ya las imágenes sobrantes (por defecto se reescriben como relleno hasta el "
                         "próximo arranque; usar con el protector de ES-DE cerrado)")
+    add_rotation_options(p)
     p.set_defaults(func=cmd_protector)
     p = sub.add_parser("pendientes", help="juegos con un récord guardado que todavía no se puede leer")
     p.add_argument("--sin-marcar", action="store_true",

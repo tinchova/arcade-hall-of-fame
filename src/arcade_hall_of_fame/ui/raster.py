@@ -39,12 +39,27 @@ class Raster:
             for rx, ry, length in pf.runs(ch):
                 self.rect(gx + rx * scale, y + ry * scale, length * scale, scale, color)
 
+    def image(self, x: int, y: int, w: int, h: int, picture) -> None:
+        """Copia la imagen ya escalada (RGB); si no se puede leer, no dibuja nada."""
+        data = picture.pixels(w, h)
+        if data is None:
+            return
+        x1, x2 = max(0, x), min(self.width, x + w)
+        if x2 <= x1:
+            return
+        for row in range(max(0, -y), min(h, self.height - y)):
+            src = (row * w + (x1 - x)) * 3
+            dst = ((y + row) * self.width + x1) * 3
+            self.pixels[dst:dst + (x2 - x1) * 3] = data[src:src + (x2 - x1) * 3]
+
     def draw(self, ops: Iterable[tuple]) -> "Raster":
         for op in ops:
             if op[0] == "rect":
                 self.rect(*op[1:])
             elif op[0] == "text":
                 self.text(*op[1:])
+            elif op[0] == "image":
+                self.image(*op[1:])
             # "row" solo marca el comienzo de una fila (animación en Tk)
         return self
 

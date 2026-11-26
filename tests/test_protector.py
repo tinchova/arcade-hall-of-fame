@@ -203,6 +203,7 @@ class LaunchAgentTest(unittest.TestCase):
         self.assertEqual(plist["WatchPaths"], ["/Users/ejemplo/Documents/RetroArch/saves/FinalBurn Neo/fbneo"])
         self.assertNotIn("StartInterval", plist)  # solo cuando cambian las partidas
         self.assertTrue(plist["RunAtLoad"])
+        self.assertEqual(plist["StartCalendarInterval"], {"Hour": 6, "Minute": 0})  # vencen destacados, rotan mosaicos
         self.assertEqual(plist["ProgramArguments"][1:4], ["-m", "arcade_hall_of_fame", "protector"])
         self.assertEqual(plist["EnvironmentVariables"]["PYTHONPATH"], "/Users/ejemplo/arcade-hall-of-fame/src")
 

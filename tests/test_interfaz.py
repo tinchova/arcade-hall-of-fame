@@ -176,7 +176,7 @@ class ScreensTest(HistoryTestCase):
         screens = build_screens(self.db, Players())
         keys = [s.key for s in screens]
         self.assertEqual(keys[:2], ["ranking", "records"])
-        self.assertEqual(keys.count("ranking"), 2)  # vuelve al ranking cada 4 juegos
+        self.assertEqual(keys.count("ranking"), 1)  # TOP GLOBAL una vez, al principio
         # demo (solo fábrica) y solotop (sin iniciales ni nombre) no aparecen
         self.assertEqual(len([k for k in keys if k.startswith("juego:")]), 6)
         ranking = screens[0]
@@ -242,7 +242,8 @@ class ScreensTest(HistoryTestCase):
                 (self.db_dir / f"{name}.xml").write_bytes((self.db_dir / "demo.xml").read_bytes())
                 self.write(name, demo_file([(900, initials), (50, "EF"), (10, "GH")]))
         self.scan()
-        screens = {s.key: s for s in build_screens(self.db, Players())}
+        options = sc.RotationOptions(featured=99)  # todos destacados: cada uno con su tabla
+        screens = {s.key: s for s in build_screens(self.db, Players(), options=options)}
         # Podio: la fila entera del color del puesto.
         self.assertEqual([[c[1] for c in row] for row in screens["juego:demo"].rows],
                          [[c] * 4 for c in (sc.ORO, sc.PLATA, sc.BRONCE)])

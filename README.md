@@ -199,7 +199,7 @@ Objetivo: Python 3.11 o posterior. El núcleo también funciona con el Python 3.
        --gamelist "$HOME/ES-DE/gamelists/fbneo/gamelist.xml"
    ```
 
-   Escanea al abrir y cada 60 segundos (`--escaneo`) y cambia de pantalla cada 8 (`--segundos`). Otras opciones: `--ventana 1280x720` para no usar pantalla completa, `--sin-animacion`, `--capturas <carpeta>` para guardar un PNG de cada pantalla sin abrir ventana y `--prueba` para comprobar Tk y generar las pantallas sin mostrarlas.
+   Escanea al abrir y cada 60 segundos (`--escaneo`) y cambia de pantalla cada 8 (`--segundos`). Otras opciones: `--ventana 1280x720` para no usar pantalla completa, `--sin-animacion`, `--capturas <carpeta>` para guardar un PNG de cada pantalla sin abrir ventana y `--prueba` para comprobar Tk y generar las pantallas sin mostrarlas. La rotación y las imágenes de los juegos se describen en [Rotación de pantallas](#rotación-de-pantallas).
 
 6. Imágenes para el protector de pantalla de ES-DE (slideshow con imágenes propias):
 
@@ -208,7 +208,7 @@ Objetivo: Python 3.11 o posterior. El núcleo también funciona con el Python 3.
        --carpeta "$HOME/Documents/RetroArch/saves/FinalBurn Neo/fbneo"
    ```
 
-   Si los datos no cambiaron desde la vez anterior, no reescribe nada. Las imágenes que sobran no se borran enseguida (ES-DE mostraría negro en su lugar): quedan como copia del ranking hasta el próximo arranque del sistema, o hasta `protector --compactar`. Junto a las imágenes deja `hof-pendientes.txt`, con los juegos cuyo récord todavía no se puede leer y los récords sin nombre. En macOS, `contrib/macos/instalar_protector.sh` lo deja funcionando con un LaunchAgent que se dispara cuando cambia la carpeta de partidas; ver [INTEGRACION_ESDE.md](docs/INTEGRACION_ESDE.md).
+   Si los datos no cambiaron desde la vez anterior, no reescribe nada. Las imágenes que sobran no se borran enseguida (ES-DE mostraría negro en su lugar): quedan como copia del ranking hasta el próximo arranque del sistema, o hasta `protector --compactar`. Junto a las imágenes deja `hof-pendientes.txt`, con los juegos cuyo récord todavía no se puede leer y los récords sin nombre. Acepta las opciones de la rotación (`--destacados`, `--dias-destacado`, `--mosaico`, `--mosaicos`, `--medios`, `--sin-imagenes`; ver [Rotación de pantallas](#rotación-de-pantallas)). En macOS, `contrib/macos/instalar_protector.sh` lo deja funcionando con un LaunchAgent que se dispara cuando cambia la carpeta de partidas y una vez por día; ver [INTEGRACION_ESDE.md](docs/INTEGRACION_ESDE.md).
 
 7. Pruebas automáticas, con datos sintéticos:
 
@@ -250,6 +250,17 @@ Con `--mostrar-sin-iniciales` (o `ARCADE_HOF_MOSTRAR_SIN_INICIALES=1`), la panta
 El primer escaneo de todo es la línea base y no anuncia récords batidos. Un juego que aparece después (un `.hi` nuevo, como la primera partida a un juego) sí cuenta su primer récord en "últimos récords", salvo que sea una entrada de fábrica; si no tiene nombre, se muestra solo con la opción anterior.
 
 "Últimos récords" también incluye los récords vigentes de la línea base que tienen titular (iniciales del juego o un nombre puesto con `nombrar`), con la fecha en que se detectó esa puntuación por primera vez y el nombre puesto, si lo hay, en lugar de las iniciales originales. Los de fábrica y los que no tienen nombre no aparecen. Cuando uno de esos récords se bate, queda el récord batido en su lugar. En `records` figuran como "línea base".
+
+### Rotación de pantallas
+
+La ventana y las imágenes del protector siguen el mismo orden en cada vuelta:
+
+1. **TOP GLOBAL** (el ranking, en varias páginas si hace falta) y **ÚLTIMOS RÉCORDS**.
+2. Los juegos **destacados**, cada uno con su pantalla: hasta 8 (`--destacados`). Primero los que tienen un récord nuevo (batido, o el primero de un juego nuevo) de los últimos 7 días (`--dias-destacado`; 0 para no usarlo), del más reciente al más viejo; después, los de más jugadores distintos en su tabla (con el nombre final: alias o nombre puesto) y, para desempatar, los de récord más reciente.
+3. Las pantallas **MÁS RÉCORDS** (mosaico) con el resto de los juegos, por orden alfabético: 6 por pantalla (`--mosaico`) en una grilla de 3 x 2, con el logo de cada juego (o su nombre), el 1º con su nombre final en oro y los puntos en blanco, y un contador "1 / 3". Hay un tope de 3 mosaicos por vuelta (`--mosaicos`): si hay más, cada generación empieza por otros, así que van apareciendo todos (la ventana Tk cambia en cada escaneo; el protector, una vez por día).
+4. La del QR de la página web, si está instalada.
+
+La pantalla de un destacado muestra arriba el marquee (logo) del juego en lugar del título en texto, debajo el año y el fabricante, y al costado de la tabla una captura del juego (o, si no hay, su pantalla de título). Las imágenes se leen en el momento de los medios que bajó ES-DE: `<medios>/fbneo/{marquees,screenshots,titlescreens}/<subcarpeta>/<zip>.png`, donde `<medios>` es la carpeta `MediaDirectory` de `es_settings.xml` o, si está vacía, `~/ES-DE/downloaded_media` (se cambia con `--medios` o `ARCADE_HOF_MEDIOS`; `--sin-imagenes` deja todo en texto). No se copian al repositorio. El lector de PNG es propio, en Python puro (`ui/png.py`): 8 bits por canal, sin entrelazado, en gris, RGB, paleta, gris con alfa y RGBA; si falta la imagen o el PNG no está soportado (por ejemplo, uno entrelazado, o un JPG), se muestra el texto. El resultado escalado (promedio por área al achicar, bilineal al agrandar, siempre con la proporción original) se guarda en `cache-medios/` junto a la base, así que solo la primera vez cuesta: en la iMac, 1,5 segundos para la primera generación y medio segundo las siguientes.
 
 La pantalla y las imágenes usan fondo negro puro (`#000000`), para que se confundan con los bordes negros de la pantalla. El título, el subtítulo y la tabla van fijos bajo la línea superior (si hay más filas, la tabla crece hacia abajo) y la línea de estado, pegada a la línea inferior: en las imágenes del protector va justo encima de esa línea y en la ventana, justo encima de la línea de ayuda. En el ranking, la columna RECORDS cuenta los primeros puestos y JUEGOS nombra hasta dos y agrega `+N` con los demás (por ejemplo, `GALAGA, PENGO +3`); si los nombres no entran en el ancho, se nombra uno solo, recortado con un punto si hace falta.
 

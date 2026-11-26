@@ -4,8 +4,10 @@
   Plantilla del LaunchAgent que mantiene al día las imágenes del protector.
   instalar_protector.sh reemplaza los valores @...@ y la copia a
   ~/Library/LaunchAgents/. launchd la ejecuta al iniciar sesión y cada vez que
-  cambia algo en la carpeta de partidas de FBNeo (WatchPaths); no corre a
-  intervalos fijos. Si los datos no cambiaron, el comando no reescribe nada.
+  cambia algo en la carpeta de partidas de FBNeo (WatchPaths), y una vez por día
+  a las 6 (StartCalendarInterval; si la Mac duerme, al despertar): ese día vencen
+  los destacados por récord nuevo y rotan los mosaicos. Si los datos no
+  cambiaron, el comando no reescribe nada.
 -->
 <plist version="1.0">
 <dict>
@@ -45,6 +47,14 @@
 
     <key>RunAtLoad</key>
     <true/>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>6</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
 
     <key>ThrottleInterval</key>
     <integer>30</integer>
