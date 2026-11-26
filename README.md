@@ -152,7 +152,7 @@ La página **no tiene cuentas ni contraseñas**: cualquiera conectado a la misma
 
 ### Abrirla desde ES-DE
 
-`contrib/macos/instalar_esde.sh` agrega a ES-DE un sistema propio, **Salón de la Fama**, con una entrada, **Poner nombres**, que abre la página en Firefox a pantalla completa (modo kiosco, con un perfil propio). Al cerrar Firefox con **Cmd+Q** se vuelve a ES-DE. Si la página no está instalada como LaunchAgent, la entrada la levanta mientras Firefox está abierto.
+`contrib/macos/instalar_esde.sh` agrega a ES-DE un sistema propio, **Salón de la Fama**, con una entrada, **Poner nombres**, que abre la página en Firefox a pantalla completa (modo kiosco, con un perfil propio). Al cerrar Firefox con **Cmd+Q** se vuelve a ES-DE. Si la página no está instalada como LaunchAgent, la entrada la levanta mientras Firefox está abierto. Firefox se abre como instancia aparte (`open -n`) aunque haya otro Firefox abierto; si en 30 segundos no quedó al frente, se cierra y se vuelve a ES-DE (registro en `~/Library/Logs/arcade-hall-of-fame-esde.log`).
 
 ```sh
 ~/arcade-hall-of-fame/contrib/macos/instalar_esde.sh

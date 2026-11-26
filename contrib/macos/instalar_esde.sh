@@ -6,6 +6,7 @@
 # Uso: contrib/macos/instalar_esde.sh             (instala)
 #      contrib/macos/instalar_esde.sh --desinstalar
 # Variables opcionales: PUERTO (47474), FIREFOX, ROMS (carpeta de ROMs de ES-DE).
+# Cada lanzamiento queda en ~/Library/Logs/arcade-hall-of-fame-esde.log.
 #
 # Toca solo ~/ES-DE/custom_systems/es_systems.xml (antes hace una copia con la
 # fecha, si existe) y crea la carpeta <ROMs>/salondelafama. No toca
@@ -16,6 +17,7 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 PYTHON="${PYTHON:-/Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13}"
 PUERTO="${PUERTO:-47474}"
 FIREFOX="${FIREFOX:-/Applications/Firefox.app/Contents/MacOS/firefox}"
+APP="${FIREFOX%/Contents/MacOS/*}"
 ESDE="$HOME/ES-DE"
 SISTEMAS="$ESDE/custom_systems/es_systems.xml"
 SISTEMA="salondelafama"
@@ -98,6 +100,10 @@ for ruta in "$PYTHON" "$FIREFOX"; do
         exit 1
     fi
 done
+case "$APP" in
+    *.app) ;;
+    *) echo "FIREFOX tiene que estar dentro de una aplicación (.app): $FIREFOX" >&2; exit 1 ;;
+esac
 case "$PUERTO" in
     ''|*[!0-9]*) echo "Puerto no válido: $PUERTO" >&2; exit 1 ;;
 esac
@@ -141,11 +147,64 @@ if ! curl -fsS -m 3 -o /dev/null "\$URL" </dev/null >/dev/null 2>&1; then
     TEMPORAL=\$!
     sleep 2
 fi
-# ES-DE lee la salida del comando hasta que se cierra: sin redirigir, un proceso
-# que Firefox deja vivo al salir (pingsender, crashhelper) la mantiene abierta y
-# ES-DE queda esperando. --no-remote con un perfil propio: no se mezcla con un
-# Firefox ya abierto con el perfil normal.
-"$FIREFOX" --kiosk --no-remote --profile "\$PERFIL" "\$URL" </dev/null >/dev/null 2>&1
+# Registro de cada lanzamiento, para ver qué pasó si ES-DE no vuelve.
+REGISTRO="\$HOME/Library/Logs/arcade-hall-of-fame-esde.log"
+anotar() { echo "\$(date '+%Y-%m-%d %H:%M:%S') \$*" >>"\$REGISTRO" 2>/dev/null || true; }
+# Segundos que tiene Firefox para arrancar y quedar al frente; si no, se vuelve a ES-DE.
+ESPERA=\${ESPERA:-30}
+# El Firefox del salón (el proceso principal, no el "open" que lo lanza).
+firefox_salon() { pgrep -n -f "MacOS/firefox .*--profile \$PERFIL" 2>/dev/null; }
+# PID de la aplicación que está al frente.
+al_frente() { lsappinfo info -only pid "\$(lsappinfo front 2>/dev/null)" 2>/dev/null | sed -n 's/.*=//p'; }
+cerrar_firefox() {
+    kill "\$1" 2>/dev/null || return 0
+    n=0
+    while kill -0 "\$1" 2>/dev/null && [ \$n -lt 10 ]; do sleep 1; n=\$((n + 1)); done
+    kill -9 "\$1" 2>/dev/null || true
+}
+
+# Un Firefox del salón que quedó de antes tiene el perfil tomado: el nuevo
+# mostraría "Firefox ya está abierto" detrás de ES-DE. Se cierra primero.
+VIEJO="\$(firefox_salon)"
+if [ -n "\$VIEJO" ]; then
+    anotar "quedaba un Firefox del salón abierto (pid \$VIEJO): se cierra"
+    cerrar_firefox "\$VIEJO"
+fi
+
+# "open -n -W": una instancia nueva por LaunchServices, que macOS trae al frente
+# aunque haya otro Firefox abierto (o detenido), y "open" espera a que se cierre.
+# --foreground: Firefox se activa solo al arrancar. --no-remote con un perfil
+# propio: no se mezcla con el Firefox normal. Entrada y salidas a /dev/null:
+# ES-DE lee la salida del comando hasta que se cierra y un proceso que Firefox
+# deja vivo al salir (pingsender, crashhelper) lo dejaría esperando.
+anotar "lanzando Firefox (\$URL)"
+open -n -W -a "$APP" --args --foreground --kiosk --no-remote --profile "\$PERFIL" "\$URL" </dev/null >/dev/null 2>&1 &
+ABRIR=\$!
+FIREFOX_PID=""
+FRENTE=""
+t=0
+while [ \$t -lt "\$ESPERA" ]; do
+    sleep 1
+    t=\$((t + 1))
+    kill -0 "\$ABRIR" 2>/dev/null || break
+    [ -n "\$FIREFOX_PID" ] || FIREFOX_PID="\$(firefox_salon)"
+    if [ -n "\$FIREFOX_PID" ] && [ "\$(al_frente)" = "\$FIREFOX_PID" ]; then
+        FRENTE=1
+        break
+    fi
+done
+if [ -n "\$FRENTE" ]; then
+    anotar "Firefox \$FIREFOX_PID al frente a los \${t}s"
+    wait "\$ABRIR" 2>/dev/null || true
+    anotar "Firefox cerrado"
+elif kill -0 "\$ABRIR" 2>/dev/null; then
+    # Corte de seguridad: no arrancó o quedó escondido detrás de ES-DE.
+    anotar "Firefox (pid \${FIREFOX_PID:-ninguno}) no quedó al frente en \${ESPERA}s: se cierra y se vuelve a ES-DE (al frente: pid \$(al_frente))"
+    [ -z "\$FIREFOX_PID" ] || cerrar_firefox "\$FIREFOX_PID"
+    kill "\$ABRIR" 2>/dev/null || true
+else
+    anotar "Firefox terminó antes de quedar al frente (pid \${FIREFOX_PID:-ninguno})"
+fi
 if [ -n "\$TEMPORAL" ]; then
     kill "\$TEMPORAL" 2>/dev/null || true
 fi
