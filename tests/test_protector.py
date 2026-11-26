@@ -8,8 +8,9 @@ import shutil
 import subprocess
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from arcade_hall_of_fame import cli
+from arcade_hall_of_fame import cli, protector
 from arcade_hall_of_fame.protector import MANIFEST, PENDING_FILE, file_names, generate
 from arcade_hall_of_fame.ui.screens import Screen
 
@@ -37,6 +38,10 @@ class ProtectorTest(HistoryTestCase):
     def setUp(self):
         super().setUp()
         self.out = Path(self.db_path).parent / "protector"
+        # ES-DE abierto: los sobrantes quedan como relleno (igual en cualquier sistema).
+        patcher = mock.patch.object(protector, "esde_running", return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def pngs(self):
         return sorted(p.name for p in self.out.glob("*.png"))
@@ -44,7 +49,7 @@ class ProtectorTest(HistoryTestCase):
     def test_genera_y_no_reescribe_sin_cambios(self):
         self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
         self.assertIn("3 imágenes nuevas", self.run_protector())
-        self.assertEqual(self.pngs(), ["hof-001-ranking.png", "hof-002-records.png", "hof-003-juego-demo.png"])
+        self.assertEqual(self.pngs(), ["hof-juego-demo.png", "hof-ranking.png", "hof-records.png"])
         self.assertTrue((self.out / MANIFEST).is_file())
         stamps = {p.name: p.stat().st_mtime_ns for p in self.out.glob("*.png")}
         self.assertIn("sin cambios en los datos", self.run_protector())
@@ -54,56 +59,88 @@ class ProtectorTest(HistoryTestCase):
         self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
         self.run_protector()
         (self.out / "ajeno.png").write_bytes(b"no es nuestro")
-        (self.out / "hof-099-viejo.png").write_bytes(b"x")
-        (self.out / "hof-001-ranking.png.part").write_bytes(b"x")
+        (self.out / "hof-viejo.png").write_bytes(b"x")
+        (self.out / "hof-ranking.png.part").write_bytes(b"x")
         self.write("demo", demo_file([(950, "QZ"), (900, "XY"), (500, "AA")]))
         text = self.run_protector()
-        # El sobrante no se borra (ES-DE puede tenerlo en su lista): queda como copia del ranking.
+        # El sobrante no se borra (ES-DE está abierto y puede tenerlo en su lista): queda como está.
         self.assertIn("0 borradas,", text)
-        self.assertIn("1 sobrante reescrita", text)
+        self.assertIn("1 sobrante queda como relleno", text)
         self.assertEqual(sorted(p.name for p in self.out.iterdir()),
-                         [MANIFEST, "ajeno.png", "hof-001-ranking.png", "hof-002-records.png",
-                          "hof-003-juego-demo.png", "hof-099-viejo.png", PENDING_FILE])
-        ranking = (self.out / "hof-001-ranking.png").read_bytes()
-        self.assertEqual((self.out / "hof-099-viejo.png").read_bytes(), ranking)
-        self.assertIn("hof-099-viejo.png", json.loads((self.out / MANIFEST).read_text(encoding="utf-8"))["relleno"])
+                         sorted([MANIFEST, "ajeno.png", "hof-juego-demo.png", "hof-ranking.png", "hof-records.png",
+                                 "hof-viejo.png", PENDING_FILE]))
+        self.assertEqual((self.out / "hof-viejo.png").read_bytes(), b"x")  # no repite el ranking
+        self.assertIn("hof-viejo.png", json.loads((self.out / MANIFEST).read_text(encoding="utf-8"))["relleno"])
         self.assertIn("sin cambios en los datos", self.run_protector())
         self.assertIn("1 borrada,", self.run_protector("--compactar"))
         self.assertEqual(sorted(p.name for p in self.out.iterdir()),
-                         [MANIFEST, "ajeno.png", "hof-001-ranking.png", "hof-002-records.png",
-                          "hof-003-juego-demo.png", PENDING_FILE])
+                         sorted([MANIFEST, "ajeno.png", "hof-juego-demo.png", "hof-ranking.png", "hof-records.png",
+                                 PENDING_FILE]))
         self.assertEqual(json.loads((self.out / MANIFEST).read_text(encoding="utf-8"))["relleno"], {})
 
-    def test_relleno_hasta_el_proximo_arranque(self):
+    def test_relleno_se_borra_pasados_10_minutos(self):
         self.out.mkdir(parents=True)
         screens = [Screen("ranking", "A", "", (), []), Screen("records", "B", "", (), []),
                    Screen("juego:x", "C", "", (), [])]
-        generate(lambda: screens, self.out, 64, 36, "e1", boot="arranque-1")
-        report = generate(lambda: screens[:2], self.out, 64, 36, "e2", boot="arranque-1")
-        self.assertEqual((report.removed, report.filled), ([], ["hof-003-juego-x.png"]))
-        ranking = (self.out / "hof-001-ranking.png").read_bytes()
-        self.assertEqual((self.out / "hof-003-juego-x.png").read_bytes(), ranking)
-        # El ranking cambia: el relleno se actualiza con él.
-        screens[0] = Screen("ranking", "Z", "", (), [])
-        report = generate(lambda: screens[:2], self.out, 64, 36, "e3", boot="arranque-1")
-        self.assertEqual(report.filled, ["hof-003-juego-x.png"])
-        self.assertEqual((self.out / "hof-003-juego-x.png").read_bytes(), (self.out / "hof-001-ranking.png").read_bytes())
-        # Arranque nuevo: aunque los datos no cambiaron, se borra el relleno.
-        report = generate(lambda: screens[:2], self.out, 64, 36, "e3", boot="arranque-2")
-        self.assertEqual((report.skipped, report.removed), (False, ["hof-003-juego-x.png"]))
-        self.assertFalse((self.out / "hof-003-juego-x.png").exists())
-        # Sin relleno, un arranque nuevo sin cambios no reescribe nada, pero anota el arranque.
-        self.assertTrue(generate(lambda: screens[:2], self.out, 64, 36, "e3", boot="arranque-3").skipped)
-        self.assertEqual(json.loads((self.out / MANIFEST).read_text(encoding="utf-8"))["arranque"], "arranque-3")
-        report = generate(lambda: screens[1:2], self.out, 64, 36, "e4", boot="arranque-3")
-        self.assertEqual((report.removed, report.filled), ([], ["hof-001-ranking.png", "hof-002-records.png"]))  # renumeradas
+        generate(lambda: screens, self.out, 64, 36, "e1", esde_running=True, now=1000)
+        old = (self.out / "hof-juego-x.png").read_bytes()
+        # Un cambio de orden no deja sobrantes ni reescribe nada.
+        report = generate(lambda: [screens[2], screens[0], screens[1]], self.out, 64, 36, "e2",
+                          esde_running=True, now=1000)
+        self.assertEqual((report.written, report.removed, report.filled), ([], [], []))
+        # El juego deja de mostrarse: queda como está (no se reescribe con el ranking).
+        report = generate(lambda: screens[:2], self.out, 64, 36, "e3", esde_running=True, now=1000)
+        self.assertEqual((report.removed, report.filled), ([], ["hof-juego-x.png"]))
+        self.assertEqual((self.out / "hof-juego-x.png").read_bytes(), old)
+        # Sin cambios y antes de los 10 minutos: no se hace nada.
+        self.assertTrue(generate(lambda: screens[:2], self.out, 64, 36, "e3", esde_running=True, now=1500).skipped)
+        report = generate(lambda: screens[:1], self.out, 64, 36, "e4", esde_running=True, now=1500)
+        self.assertEqual((report.removed, report.filled), ([], ["hof-records.png"]))
+        # Pasados 10 minutos, aunque los datos no cambiaron, se borra el relleno vencido; el más nuevo queda.
+        report = generate(lambda: screens[:1], self.out, 64, 36, "e4", esde_running=True, now=1700)
+        self.assertEqual((report.skipped, report.removed, report.filled), (False, ["hof-juego-x.png"], []))
+        self.assertTrue((self.out / "hof-records.png").exists())
+        self.assertEqual(json.loads((self.out / MANIFEST).read_text(encoding="utf-8"))["relleno"],
+                         {"hof-records.png": 1500})
+        # Vuelve a mostrarse: deja de ser relleno.
+        generate(lambda: screens[:2], self.out, 64, 36, "e5", esde_running=True, now=1700)
+        self.assertEqual(json.loads((self.out / MANIFEST).read_text(encoding="utf-8"))["relleno"], {})
+
+    def test_sin_es_de_abierto_los_sobrantes_se_borran_enseguida(self):
+        self.out.mkdir(parents=True)
+        screens = [Screen("ranking", "A", "", (), []), Screen("juego:x", "C", "", (), [])]
+        generate(lambda: screens, self.out, 64, 36, "e1", esde_running=True)
+        report = generate(lambda: screens[:1], self.out, 64, 36, "e2", esde_running=True)
+        self.assertEqual(report.filled, ["hof-juego-x.png"])
+        # ES-DE se cerró: aunque los datos no cambiaron, el relleno se borra.
+        report = generate(lambda: screens[:1], self.out, 64, 36, "e2", esde_running=False)
+        self.assertEqual((report.skipped, report.removed), (False, ["hof-juego-x.png"]))
+        self.assertTrue(generate(lambda: screens[:1], self.out, 64, 36, "e2", esde_running=False).skipped)
+
+    def test_migracion_desde_nombres_numerados(self):
+        self.out.mkdir(parents=True)
+        old = {"hof-001-ranking.png": "a", "hof-002-records.png": "b", "hof-003-juego-x.png": "c"}
+        for name in list(old) + ["hof-004-ranking.png"]:
+            (self.out / name).write_bytes(b"viejo")
+        (self.out / MANIFEST).write_text(json.dumps({"estado": "viejo", "archivos": old, "arranque": "1",
+                                                     "relleno": {"hof-004-ranking.png": "a"}}), encoding="utf-8")
+        screens = [Screen("ranking", "A", "", (), []), Screen("records", "B", "", (), []),
+                   Screen("juego:x", "C", "", (), [])]
+        # Con ES-DE abierto, los numerados quedan como relleno (a lo sumo hasta pasados 10 minutos).
+        report = generate(lambda: screens, self.out, 64, 36, "e1", esde_running=True, now=0)
+        self.assertEqual(report.filled, sorted(old) + ["hof-004-ranking.png"])
+        report = generate(lambda: screens, self.out, 64, 36, "e1", esde_running=True, now=601)
+        self.assertEqual(len(report.removed), 4)
+        self.assertEqual(sorted(p.name for p in self.out.glob("*.png")),
+                         ["hof-juego-x.png", "hof-ranking.png", "hof-records.png"])
+        self.assertNotIn("arranque", json.loads((self.out / MANIFEST).read_text(encoding="utf-8")))
 
     def test_imagen_borrada_se_regenera(self):
         self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
         self.run_protector()
-        (self.out / "hof-003-juego-demo.png").unlink()
+        (self.out / "hof-juego-demo.png").unlink()
         self.assertIn("1 imagen nueva o cambiada, 2 iguales, 0 borradas", self.run_protector())
-        self.assertIn("hof-003-juego-demo.png", self.pngs())
+        self.assertIn("hof-juego-demo.png", self.pngs())
 
     def test_generate_no_arma_pantallas_si_el_estado_no_cambio(self):
         self.out.mkdir(parents=True)
@@ -114,8 +151,8 @@ class ProtectorTest(HistoryTestCase):
             return []
 
         generate(build, self.out, 64, 36, "estado-1")
-        (self.out / "hof-001-x.png").write_bytes(b"")  # para que el manifiesto no esté vacío
-        manifest = (self.out / MANIFEST).read_text(encoding="utf-8").replace('"archivos": {}', '"archivos": {"hof-001-x.png": "h"}')
+        (self.out / "hof-x.png").write_bytes(b"")  # para que el manifiesto no esté vacío
+        manifest = (self.out / MANIFEST).read_text(encoding="utf-8").replace('"archivos": {}', '"archivos": {"hof-x.png": "h"}')
         (self.out / MANIFEST).write_text(manifest, encoding="utf-8")
         report = generate(build, self.out, 64, 36, "estado-1")
         self.assertTrue(report.skipped)
@@ -136,7 +173,7 @@ class ProtectorTest(HistoryTestCase):
         self.assertIn("Récords sin nombre: 1", text)
         self.assertIn("solotop  1400", text)
         self.assertNotIn("demo ", text)
-        self.assertNotIn("hof-004-juego-solotop.png", self.pngs())  # sin nombre: no se muestra
+        self.assertNotIn("hof-juego-solotop.png", self.pngs())  # sin nombre: no se muestra
         self.assertNotIn("lista de récords", self.run_protector())  # sin cambios, no se reescribe
         self.assertNotIn(PENDING_FILE, self.pngs())
 
@@ -149,13 +186,11 @@ class ProtectorTest(HistoryTestCase):
         text = self.run_cli("nombrar", "solotop", "NC", "--protector", str(self.out))
         self.assertIn("queda a nombre de NC", text)
         self.assertIn("4 imágenes nuevas o cambiadas", text)  # cambia la cantidad de juegos
-        self.assertIn("hof-004-juego-solotop.png", self.pngs())
+        self.assertIn("hof-juego-solotop.png", self.pngs())
         self.assertIn("No hay récords sin nombre", (self.out / PENDING_FILE).read_text(encoding="utf-8"))
         self.assertIn("sin cambios en los datos", self.run_protector())  # mismas opciones que el protector
         text = self.run_cli("nombrar", "solotop", "--quitar", "--protector", str(self.out))
-        self.assertIn("1 sobrante reescrita", text)  # sale de la rotación en el próximo arranque
-        self.assertEqual((self.out / "hof-004-juego-solotop.png").read_bytes(),
-                         (self.out / "hof-001-ranking.png").read_bytes())
+        self.assertIn("1 sobrante queda como relleno", text)  # ES-DE abierto: se borra más tarde
         # Sin carpeta del protector, nombrar no crea nada.
         missing = self.out.parent / "no-existe"
         self.run_cli("nombrar", "solotop", "NC", "--protector", str(missing))
@@ -175,8 +210,11 @@ class ProtectorTest(HistoryTestCase):
     def test_nombres_de_archivo(self):
         from arcade_hall_of_fame.ui.screens import Screen
 
-        screens = [Screen("ranking", "", "", (), []), Screen("juego:Bubl_Bobl", "", "", (), [])]
-        self.assertEqual(file_names(screens), ["hof-001-ranking.png", "hof-002-juego-bubl-bobl.png"])
+        screens = [Screen("ranking", "", "", (), []), Screen("ranking", "", "", (), []),
+                   Screen("juego:Bubl_Bobl", "", "", (), []), Screen("mosaico:2", "", "", (), []),
+                   Screen("web", "", "", (), [])]
+        self.assertEqual(file_names(screens), ["hof-ranking.png", "hof-ranking-2.png", "hof-juego-bubl-bobl.png",
+                                               "hof-mosaico-2.png", "hof-web.png"])
 
 
 class LaunchAgentTest(unittest.TestCase):

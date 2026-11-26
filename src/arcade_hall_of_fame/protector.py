@@ -8,8 +8,10 @@ Genera un PNG por pantalla en una carpeta. Para no trabajar de más:
   manifiesto con el hash de cada una.
 
 Cada archivo se escribe con un nombre temporal y se renombra al terminar, para
-que ES-DE nunca lea una imagen a medio escribir. Se borran las imágenes propias
-(``hof-*.png``) que ya no corresponden; los archivos ajenos no se tocan.
+que ES-DE nunca lea una imagen a medio escribir. Cada pantalla tiene un nombre
+fijo (``hof-ranking.png``, ``hof-juego-<zip>.png``...); las imágenes propias
+(``hof-*.png``) que ya no corresponden se borran (ver ``generate``) y los
+archivos ajenos no se tocan.
 
 Junto a las imágenes queda ``hof-pendientes.txt``, con los juegos que tienen un
 récord guardado que todavía no se puede leer (ver el comando ``pendientes``), y
@@ -24,6 +26,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence
@@ -36,12 +39,14 @@ from .ui.screens import Screen
 PREFIX = "hof-"
 MANIFEST = ".hof-protector.json"
 TEMP_SUFFIX = ".part"
-FORMAT_VERSION = 11  # 2: fondo negro, sin fábrica, nombres puestos a mano; 3: singular y opciones;
+FILLER_SECONDS = 10 * 60  # un sobrante se borra en la primera generación pasado este tiempo
+FORMAT_VERSION = 12  # 2: fondo negro, sin fábrica, nombres puestos a mano; 3: singular y opciones;
 # 4: columna RECORDS, JUEGOS con +N, bloque arriba y estado abajo, línea base en últimos récords
 # 5: regla única de colores (podio, resto gris, puntos blancos, juego celeste), sin banda en la fila 1; 6: plata acerada; 7: subtítulo TOP GLOBAL
 # 8: filas del podio enteras en oro, plata y bronce; 9: alias de jugadores y columnas JUGADOR de 12
 # 10: destacados con marquee y captura, pantallas mosaico y QR al final
 # 11: la fábrica se ignora del todo: puestos renumerados y récord = mejor fila de jugador
+# 12: nombres de archivo fijos por pantalla, sin número de orden
 PENDING_FILE = PREFIX + "pendientes.txt"
 
 
@@ -51,7 +56,7 @@ class ProtectorReport:
     written: List[str] = field(default_factory=list)
     unchanged: List[str] = field(default_factory=list)
     removed: List[str] = field(default_factory=list)
-    filled: List[str] = field(default_factory=list)  # sobrantes reescritos como relleno
+    filled: List[str] = field(default_factory=list)  # sobrantes nuevos que quedan como relleno
 
 
 def data_state(db: Database, options) -> str:
@@ -85,7 +90,16 @@ def _slug(key: str) -> str:
 
 
 def file_names(screens: Sequence[Screen]) -> List[str]:
-    return [f"{PREFIX}{i:03d}-{_slug(s.key)}.png" for i, s in enumerate(screens, start=1)]
+    """Un nombre fijo por pantalla, sin número de orden: ES-DE elige las imágenes al azar."""
+    names: List[str] = []
+    for screen in screens:
+        base = name = f"{PREFIX}{_slug(screen.key)}"
+        n = 1
+        while f"{name}.png" in names:  # páginas del ranking: hof-ranking, hof-ranking-2...
+            n += 1
+            name = f"{base}-{n}"
+        names.append(f"{name}.png")
+    return names
 
 
 def _write_atomic(path: Path, data: bytes) -> None:
@@ -124,88 +138,88 @@ def read_options(out_dir: Path) -> Optional[Dict]:
     return options if isinstance(options, dict) else None
 
 
-def boot_id() -> Optional[str]:
-    """Identifica el arranque actual del sistema (macOS y Linux); None si no se sabe."""
+def esde_running() -> Optional[bool]:
+    """True si ES-DE está abierto, False si no, None si no se puede saber."""
+    if sys.platform == "win32":
+        return None
     try:
-        if sys.platform == "darwin":
-            out = subprocess.run(["sysctl", "-n", "kern.boottime"], capture_output=True, text=True,
-                                 timeout=5, check=True).stdout
-            match = re.search(r"sec = (\d+)", out)
-            return match.group(1) if match else None
-        if sys.platform.startswith("linux"):
-            return Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii").strip() or None
+        code = subprocess.run(["pgrep", "-x", "ES-DE" if sys.platform == "darwin" else "es-de"],
+                              capture_output=True, timeout=5).returncode
     except (OSError, subprocess.SubprocessError):
         return None
-    return None
+    return {0: True, 1: False}.get(code)
 
 
 def generate(build: Callable[[], Sequence[Screen]], out_dir: Path, width: int, height: int,
-             state: str, options: Optional[Dict] = None, boot: Optional[str] = None,
-             compact: bool = False) -> ProtectorReport:
+             state: str, options: Optional[Dict] = None, esde_running: Optional[bool] = None,
+             compact: bool = False, now: Optional[float] = None) -> ProtectorReport:
     """Actualiza la carpeta; ``build`` solo se llama si cambió ``state``.
 
     ``options`` se guarda en el manifiesto, para que otro comando (por ejemplo,
     ``nombrar``) pueda regenerar las imágenes con las mismas opciones.
 
+    Cada pantalla tiene un nombre fijo (sin número de orden), así que un cambio de
+    orden no deja archivos de más. Sobra un archivo cuando una pantalla deja de
+    mostrarse (por ejemplo, un juego que deja de ser destacado) y en la migración
+    desde los nombres numerados.
+
     ES-DE arma la lista de imágenes al activar su protector y rota sobre ella
-    mientras sigue activo; si una se borra, en su turno muestra negro. Por eso
-    las imágenes propias que sobran (menos pantallas o pantallas renumeradas)
-    no se borran: se reescriben como copia de la primera pantalla (el ranking)
-    y quedan anotadas como relleno en el manifiesto. Se borran solo al compactar:
-    con ``compact`` o en la primera generación después de un arranque del sistema
-    (``boot`` distinto del anotado), cuando ES-DE todavía no armó su lista.
+    mientras sigue activo; si una se borra, en su turno muestra negro. Por eso un
+    sobrante se borra enseguida solo si ES-DE no está abierto (``esde_running``
+    False) o con ``compact``; si no, queda como está (relleno, anotado en el
+    manifiesto con la hora) y se borra en la primera generación que ocurra más de
+    ``FILLER_SECONDS`` después. El relleno no se reescribe: no repite el ranking.
     """
+    now = time.time() if now is None else now
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = out_dir / MANIFEST
     manifest = _read_manifest(manifest_path)
     previous: Dict[str, str] = manifest.get("archivos", {}) if isinstance(manifest.get("archivos"), dict) else {}
-    fillers_before: Dict[str, str] = manifest.get("relleno", {}) if isinstance(manifest.get("relleno"), dict) else {}
-    compact = compact or (boot is not None and manifest.get("arranque") != boot)
+    relleno = manifest.get("relleno") if isinstance(manifest.get("relleno"), dict) else {}
+    # Hora en que cada sobrante pasó a ser relleno (en el formato viejo era otra cosa: cuenta desde ahora).
+    fillers_before: Dict[str, float] = {n: t for n, t in relleno.items() if isinstance(t, (int, float))}
+
+    def expired(name: str) -> bool:
+        return compact or esde_running is False or (name in fillers_before
+                                                     and now - fillers_before[name] > FILLER_SECONDS)
+
     report = ProtectorReport()
+    own = [p.name for p in out_dir.iterdir() if p.name.startswith(PREFIX)
+           and (p.name.endswith(".png") or p.name.endswith(TEMP_SUFFIX))]
+    extra = [n for n in own if n not in previous]
     if (manifest.get("estado") == state and manifest.get("opciones") == options and previous
-            and all((out_dir / n).is_file() for n in list(previous) + list(fillers_before))
-            and not (compact and fillers_before)):
+            and all((out_dir / n).is_file() for n in previous)
+            and all(n in fillers_before and not expired(n) for n in extra)):
         report.skipped = True
-        if boot is not None and manifest.get("arranque") != boot:
-            manifest["arranque"] = boot
-            _write_manifest(manifest_path, manifest)
         return report
 
     screens = build()
     current: Dict[str, str] = {}
-    first_png: Optional[bytes] = None
-    first_digest = ""
-    for index, (name, screen) in enumerate(zip(file_names(screens), screens)):
+    for name, screen in zip(file_names(screens), screens):
         ops = layout(screen, width, height, "", "")
         digest = hashlib.sha256(repr((width, height, ops)).encode("utf-8")).hexdigest()
         current[name] = digest
         target = out_dir / name
-        png = None
         if previous.get(name) != digest or not target.is_file():
-            png = Raster(width, height).draw(ops).png()
-            _write_atomic(target, png)
+            _write_atomic(target, Raster(width, height).draw(ops).png())
             report.written.append(name)
         else:
             report.unchanged.append(name)
-        if index == 0:
-            first_digest = digest
-            first_png = png if png is not None else target.read_bytes()
 
-    fillers: Dict[str, str] = {}
+    fillers: Dict[str, float] = {}
     for path in sorted(out_dir.iterdir()):
         own_png = path.name.startswith(PREFIX) and path.name.endswith(".png")
         leftover = path.name.startswith(PREFIX) and path.name.endswith(TEMP_SUFFIX)
-        if leftover or (own_png and path.name not in current and (compact or first_png is None)):
+        if leftover or (own_png and path.name not in current and expired(path.name)):
             path.unlink()
             report.removed.append(path.name)
         elif own_png and path.name not in current:
-            fillers[path.name] = first_digest
-            if fillers_before.get(path.name) != first_digest:
-                _write_atomic(path, first_png)
+            fillers[path.name] = fillers_before.get(path.name, now)
+            if path.name not in fillers_before:
                 report.filled.append(path.name)
     _write_manifest(manifest_path, {"estado": state, "archivos": current, "opciones": options,
-                                    "relleno": fillers, "arranque": boot})
+                                    "relleno": fillers})
     return report
 
 

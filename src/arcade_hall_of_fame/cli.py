@@ -505,10 +505,10 @@ def update_protector(args, db: Database) -> None:
                "gamelist": args.gamelist, "dat": args.dat,
                "definiciones": str(Path(args.definiciones).resolve()), "jugadores": str(Path(args.jugadores).resolve()),
                "web_puerto": web_port, **rotation}
-    from .protector import boot_id
+    from .protector import esde_running
 
     report = generate(lambda: build_screens_for_protector(args, db), Path(args.salida), width, height, state, options,
-                      boot_id(), getattr(args, "compactar", False))
+                      esde_running(), getattr(args, "compactar", False))
     pending_text = "\n".join(pending_lines(db, mark_new=False) + [""] + unnamed_lines(db)) + "\n"
     if write_text_if_changed(Path(args.salida) / PENDING_FILE, pending_text):
         print(f"Protector: lista de récords sin leer y sin nombre actualizada ({PENDING_FILE})")
@@ -519,8 +519,9 @@ def update_protector(args, db: Database) -> None:
               f"{plural(len(report.unchanged), 'igual', 'iguales')}, "
               f"{plural(len(report.removed), 'borrada', 'borradas')}, en {args.salida}")
         if report.filled:
-            print(f"Protector: {plural(len(report.filled), 'sobrante reescrita', 'sobrantes reescritas')} como "
-                  "copia del ranking (ES-DE puede estar mostrándolas); se borran en el próximo arranque")
+            print(f"Protector: {plural(len(report.filled), 'sobrante queda', 'sobrantes quedan')} como relleno "
+                  "(ES-DE está abierto y puede estar mostrándolas); se borran en la primera generación "
+                  "pasados 10 minutos, o con --compactar")
 
 
 def today():
@@ -621,8 +622,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--web-puerto", type=int, default=None,
                    help="agregar una imagen con el QR de la página web en este puerto (por ejemplo 47474)")
     p.add_argument("--compactar", action="store_true",
-                   help="borrar ya las imágenes sobrantes (por defecto se reescriben como relleno hasta el "
-                        "próximo arranque; usar con el protector de ES-DE cerrado)")
+                   help="borrar ya las imágenes sobrantes (si ES-DE está abierto, por defecto quedan como relleno "
+                        "hasta la primera generación pasados 10 minutos; usar con el protector de ES-DE cerrado)")
     add_rotation_options(p)
     p.set_defaults(func=cmd_protector)
     p = sub.add_parser("pendientes", help="juegos con un récord guardado que todavía no se puede leer")
