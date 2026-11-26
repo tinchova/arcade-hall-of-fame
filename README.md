@@ -147,7 +147,7 @@ python -m arcade_hall_of_fame nombrar mspacman ANA --puntos 25000  # igual, pero
 python -m arcade_hall_of_fame nombrar mspacman --quitar           # deshacer
 ```
 
-El nombre queda en la base, asociado a esa puntuación exacta: desde ahí el juego aparece en su tabla con ese nombre y suma al ranking (también se agrupa con `jugadores.json`). Si después el récord cambia, el nuevo vuelve a quedar sin nombre. Las iniciales se pasan a mayúsculas y pueden tener hasta 10 caracteres. Las imágenes del protector se actualizan en el siguiente escaneo; para no esperar a otra partida, correr el comando `protector` (en macOS, `launchctl kickstart gui/$(id -u)/com.arcade-hall-of-fame.protector`).
+El nombre queda en la base, asociado a esa puntuación exacta: desde ahí el juego aparece en su tabla con ese nombre y suma al ranking (también se agrupa con `jugadores.json`). Si después el récord cambia, el nuevo vuelve a quedar sin nombre. Las iniciales se pasan a mayúsculas y pueden tener hasta 10 caracteres. Al terminar, `nombrar` regenera las imágenes del protector si su carpeta existe (`--protector`, `ARCADE_HOF_PROTECTOR` o, por defecto, `protector/` en la carpeta de datos), con las mismas opciones que usó el comando `protector` la última vez; no hace falta esperar a otra partida.
 
 Con `--mostrar-sin-iniciales` (o `ARCADE_HOF_MOSTRAR_SIN_INICIALES=1`), la pantalla y las imágenes muestran también los récords sin nombre, con el jugador como `???`. Está desactivada por defecto.
 

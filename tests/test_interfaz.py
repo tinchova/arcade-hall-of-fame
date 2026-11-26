@@ -141,6 +141,14 @@ class ScreensTest(HistoryTestCase):
             self.assertTrue(all(len(c.label) <= c.width for c in screen.columns))
         self.assertTrue(screens[0].status.startswith("6 JUEGOS  ULTIMO ESCANEO "))
 
+    def test_singular_con_un_juego(self):
+        from arcade_hall_of_fame.ui.screens import plural
+
+        self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
+        self.scan()
+        self.assertTrue(build_screens(self.db, Players())[0].status.startswith("1 JUEGO  ULTIMO ESCANEO "))
+        self.assertEqual([plural(n, "JUEGO", "JUEGOS") for n in (0, 1, 2)], ["0 JUEGOS", "1 JUEGO", "2 JUEGOS"])
+
     def test_fabrica_oculta_y_records_con_nombre(self):
         from arcade_hall_of_fame.naming import assign_name
 

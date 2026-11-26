@@ -37,7 +37,7 @@ from .naming import UNNAMED, NamingError, assign_name, entry_name, remove_name, 
 from .rankings import leaders, player_ranking, recent_records
 from .scanner import scan, utc_now
 from .players import Players
-from .storage import PENDING_SEEN_KEY, Database, default_database, default_players_file
+from .storage import PENDING_SEEN_KEY, Database, default_data_dir, default_database, default_players_file
 
 DEFAULT_DB_DIR = Path("local") / "hi2txt-xml" / REVISION / "src" / "main" / "db"
 
@@ -81,7 +81,8 @@ def cmd_scan(args, db: Database) -> int:
     for game, error in report.errors:
         print(f"  {game}: {error}")
     if report.unreadable:
-        news = f", {len(report.new_unreadable)} nuevos" if report.new_unreadable else ""
+        new = len(report.new_unreadable)
+        news = f", {new} {'nuevo' if new == 1 else 'nuevos'}" if new else ""
         print(f"  Récords que no se pueden leer: {len(report.unreadable)}{news} (ver 'pendientes')")
     return 0
 
@@ -142,6 +143,7 @@ def cmd_name(args, db: Database) -> int:
             return 2
         score = remove_name(db, args.juego)
         print(f"{args.juego}: el récord {score} quedó otra vez sin nombre ({UNNAMED}).")
+        refresh_protector_after_naming(args, db)
         return 0
     if not args.iniciales:
         print("Faltan las iniciales: nombrar <juego> <iniciales>", file=sys.stderr)
@@ -156,8 +158,31 @@ def cmd_name(args, db: Database) -> int:
     name = db.record_name(record.game, record.score_text)["initials"]
     change = f" (antes: {previous})" if previous and previous != name else ""
     print(f"{record.game}: el récord {record.score_text} queda a nombre de {name}{change}.")
-    print("Las imágenes del protector se actualizan en el próximo escaneo (o con el comando protector).")
+    refresh_protector_after_naming(args, db)
     return 0
+
+
+def refresh_protector_after_naming(args, db: Database) -> None:
+    """Regenera las imágenes del protector, si su carpeta existe, con las opciones de la última vez.
+
+    Poner un nombre no cambia la carpeta de partidas, así que el LaunchAgent no se
+    dispara solo. Las opciones (tamaño, gamelist, DAT...) salen del manifiesto que
+    deja el comando ``protector``; no se escanea.
+    """
+    from .protector import read_options
+
+    out = Path(args.protector) if args.protector else default_data_dir() / "protector"
+    if not out.is_dir():
+        return
+    options = read_options(out)
+    if options is None:
+        print("Las imágenes del protector se actualizan en el próximo escaneo (o con el comando protector).")
+        return
+    protector_args = argparse.Namespace(
+        salida=str(out), carpeta=None, tamano=tuple(options["tamano"]),
+        mostrar_sin_iniciales=options["mostrar_sin_iniciales"], gamelist=options["gamelist"],
+        dat=options["dat"], definiciones=options["definiciones"], jugadores=options["jugadores"])
+    update_protector(protector_args, db)
 
 
 def cmd_pending(args, db: Database) -> int:
@@ -308,7 +333,7 @@ def cmd_screen(args, db: Database) -> int:
             name = screen.key.replace(":", "-") + (f"-{screen.page.replace('/', 'de')}" if screen.page else "")
             ops = layout(screen, width, height, FOOTER, f"{i}/{len(screens)}")
             Raster(width, height).draw(ops).save(out / f"{name}.png")
-        print(f"{len(seen)} capturas en {out}")
+        print(f"{len(seen)} {'captura' if len(seen) == 1 else 'capturas'} en {out}")
         return 0
 
     from .ui.tkapp import run
@@ -320,33 +345,44 @@ def cmd_screen(args, db: Database) -> int:
 
 def cmd_protector(args, db: Database) -> int:
     """Escanea y, solo si cambiaron los datos, actualiza los PNG del protector de pantalla."""
-    from .protector import PENDING_FILE, data_state, generate, write_text_if_changed
-
     if args.carpeta:
         make_scanner(args, db)()
+    update_protector(args, db)
+    return 0
+
+
+def update_protector(args, db: Database) -> None:
+    """Imágenes y lista de pendientes del protector (sin escanear)."""
+    from .protector import PENDING_FILE, data_state, generate, write_text_if_changed
+    from .ui.screens import plural
+
     width, height = args.tamano
     state = data_state(db, (width, height, args.mostrar_sin_iniciales, args.gamelist, args.dat))
-    report = generate(lambda: build_screens_for_protector(args, db), Path(args.salida), width, height, state)
+    options = {"tamano": [width, height], "mostrar_sin_iniciales": bool(args.mostrar_sin_iniciales),
+               "gamelist": args.gamelist, "dat": args.dat,
+               "definiciones": str(Path(args.definiciones).resolve()), "jugadores": str(Path(args.jugadores).resolve())}
+    report = generate(lambda: build_screens_for_protector(args, db), Path(args.salida), width, height, state, options)
     pending_text = "\n".join(pending_lines(db, mark_new=False) + [""] + unnamed_lines(db)) + "\n"
     if write_text_if_changed(Path(args.salida) / PENDING_FILE, pending_text):
         print(f"Protector: lista de récords sin leer y sin nombre actualizada ({PENDING_FILE})")
     if report.skipped:
         print(f"Protector: sin cambios en los datos; no se reescribió nada en {args.salida}")
     else:
-        print(f"Protector: {len(report.written)} imágenes nuevas o cambiadas, {len(report.unchanged)} iguales, "
-              f"{len(report.removed)} borradas, en {args.salida}")
-    return 0
+        print(f"Protector: {plural(len(report.written), 'imagen nueva o cambiada', 'imágenes nuevas o cambiadas')}, "
+              f"{plural(len(report.unchanged), 'igual', 'iguales')}, "
+              f"{plural(len(report.removed), 'borrada', 'borradas')}, en {args.salida}")
 
 
 def build_screens_for_protector(args, db: Database):
-    from .ui.screens import local_stamp
+    from .ui.screens import local_stamp, plural
 
     screens = screen_builder(args, db)()
     # La línea de estado muestra el último cambio (no el último escaneo), para que
     # las imágenes solo cambien cuando cambian los datos.
     last = db.last_change()
     count = sum(1 for s in screens if s.key.startswith("juego:"))
-    status = f"{count} JUEGOS  ACTUALIZADO {local_stamp(last)}" if last else f"{count} JUEGOS"
+    games = plural(count, "JUEGO", "JUEGOS")
+    status = f"{games}  ACTUALIZADO {local_stamp(last)}" if last else games
     for screen in screens:
         screen.status = status
     return screens
@@ -417,6 +453,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("iniciales", nargs="?")
     p.add_argument("--puntos", help="puntuación esperada: falla si el récord vigente es otro")
     p.add_argument("--quitar", action="store_true", help="quitar el nombre puesto al récord vigente")
+    p.add_argument("--protector", default=os.environ.get("ARCADE_HOF_PROTECTOR"),
+                   help="carpeta de imágenes del protector a regenerar si existe "
+                        "(por defecto, protector/ en la carpeta de datos)")
     p.set_defaults(func=cmd_name)
     p = sub.add_parser("aceptar", help="aceptar un estado pendiente como nueva línea base")
     p.add_argument("nombre")

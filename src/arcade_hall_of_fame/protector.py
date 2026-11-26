@@ -24,7 +24,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, List, Sequence
+from typing import Callable, Dict, List, Optional, Sequence
 
 from .storage import Database
 from .ui.layout import layout
@@ -34,7 +34,7 @@ from .ui.screens import Screen
 PREFIX = "hof-"
 MANIFEST = ".hof-protector.json"
 TEMP_SUFFIX = ".part"
-FORMAT_VERSION = 2  # 2: fondo negro, sin fábrica, nombres puestos a mano
+FORMAT_VERSION = 3  # 2: fondo negro, sin fábrica, nombres puestos a mano; 3: singular y opciones
 PENDING_FILE = PREFIX + "pendientes.txt"
 
 
@@ -109,16 +109,27 @@ def _read_manifest(path: Path) -> Dict:
         return {}
 
 
+def read_options(out_dir: Path) -> Optional[Dict]:
+    """Opciones con que se generó la carpeta la última vez (para regenerarla igual), o None."""
+    options = _read_manifest(Path(out_dir) / MANIFEST).get("opciones")
+    return options if isinstance(options, dict) else None
+
+
 def generate(build: Callable[[], Sequence[Screen]], out_dir: Path, width: int, height: int,
-             state: str) -> ProtectorReport:
-    """Actualiza la carpeta; ``build`` solo se llama si cambió ``state``."""
+             state: str, options: Optional[Dict] = None) -> ProtectorReport:
+    """Actualiza la carpeta; ``build`` solo se llama si cambió ``state``.
+
+    ``options`` se guarda en el manifiesto, para que otro comando (por ejemplo,
+    ``nombrar``) pueda regenerar las imágenes con las mismas opciones.
+    """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = out_dir / MANIFEST
     manifest = _read_manifest(manifest_path)
     previous: Dict[str, str] = manifest.get("archivos", {}) if isinstance(manifest.get("archivos"), dict) else {}
     report = ProtectorReport()
-    if manifest.get("estado") == state and previous and all((out_dir / n).is_file() for n in previous):
+    if (manifest.get("estado") == state and manifest.get("opciones") == options and previous
+            and all((out_dir / n).is_file() for n in previous)):
         report.skipped = True
         return report
 
@@ -141,6 +152,6 @@ def generate(build: Callable[[], Sequence[Screen]], out_dir: Path, width: int, h
         if (own_png and path.name not in current) or leftover:
             path.unlink()
             report.removed.append(path.name)
-    _write_atomic(manifest_path, json.dumps({"estado": state, "archivos": current}, indent=1,
+    _write_atomic(manifest_path, json.dumps({"estado": state, "archivos": current, "opciones": options}, indent=1,
                                             sort_keys=True).encode("utf-8"))
     return report

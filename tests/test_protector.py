@@ -56,7 +56,7 @@ class ProtectorTest(HistoryTestCase):
         (self.out / "hof-001-ranking.png.part").write_bytes(b"x")
         self.write("demo", demo_file([(950, "QZ"), (900, "XY"), (500, "AA")]))
         text = self.run_protector()
-        self.assertIn("borradas", text)
+        self.assertIn("1 borrada,", text)
         self.assertEqual(sorted(p.name for p in self.out.iterdir()),
                          [MANIFEST, "ajeno.png", "hof-001-ranking.png", "hof-002-records.png",
                           "hof-003-juego-demo.png", PENDING_FILE])
@@ -65,7 +65,7 @@ class ProtectorTest(HistoryTestCase):
         self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
         self.run_protector()
         (self.out / "hof-003-juego-demo.png").unlink()
-        self.assertIn("1 imágenes nuevas", self.run_protector())
+        self.assertIn("1 imagen nueva o cambiada, 2 iguales, 0 borradas", self.run_protector())
         self.assertIn("hof-003-juego-demo.png", self.pngs())
 
     def test_generate_no_arma_pantallas_si_el_estado_no_cambio(self):
@@ -104,16 +104,34 @@ class ProtectorTest(HistoryTestCase):
         self.assertNotIn(PENDING_FILE, self.pngs())
 
     def test_nombrar_regenera_las_imagenes(self):
-        from arcade_hall_of_fame.naming import assign_name
-
         self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
         self.write("solotop", bytes([0x14, 0x00]))
         self.run_protector()
         self.assertEqual(len(self.pngs()), 3)
-        assign_name(self.db, "solotop", "NC", "2026-11-25T12:00:00+00:00")
-        self.assertIn("imágenes nuevas", self.run_protector())
+        self.assertIn("Récords sin nombre: 1", (self.out / PENDING_FILE).read_text(encoding="utf-8"))
+        text = self.run_cli("nombrar", "solotop", "NC", "--protector", str(self.out))
+        self.assertIn("queda a nombre de NC", text)
+        self.assertIn("4 imágenes nuevas o cambiadas", text)  # cambia la cantidad de juegos
         self.assertIn("hof-004-juego-solotop.png", self.pngs())
         self.assertIn("No hay récords sin nombre", (self.out / PENDING_FILE).read_text(encoding="utf-8"))
+        self.assertIn("sin cambios en los datos", self.run_protector())  # mismas opciones que el protector
+        text = self.run_cli("nombrar", "solotop", "--quitar", "--protector", str(self.out))
+        self.assertNotIn("hof-004-juego-solotop.png", self.pngs())
+        # Sin carpeta del protector, nombrar no crea nada.
+        missing = self.out.parent / "no-existe"
+        self.run_cli("nombrar", "solotop", "NC", "--protector", str(missing))
+        self.assertFalse(missing.exists())
+
+    def run_cli(self, *args) -> str:
+        self.db.close()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = cli.main(["--base", str(self.db_path), "--definiciones", str(self.db_dir),
+                             "--jugadores", str(self.players_path), *args])
+        self.assertEqual(code, 0)
+        from arcade_hall_of_fame.storage import Database
+        self.db = Database(self.db_path)
+        return out.getvalue()
 
     def test_nombres_de_archivo(self):
         from arcade_hall_of_fame.ui.screens import Screen

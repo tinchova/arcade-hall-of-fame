@@ -377,7 +377,7 @@ class CliTest(HistoryTestCase):
         self.assertIn("No hay récords sin leer", self.run_cli("pendientes"))
         self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
         self.write("sinlectura", b"\x01\x02\x03")
-        self.assertIn("Récords que no se pueden leer: 1, 1 nuevos", self.run_cli("escanear", str(self.saves)))
+        self.assertIn("Récords que no se pueden leer: 1, 1 nuevo ", self.run_cli("escanear", str(self.saves)))
         text = self.run_cli("pendientes", "--sin-marcar")
         self.assertIn("NUEVO  sinlectura", text)
         self.assertIn(REASON_NO_DEFINITION, text)
@@ -394,6 +394,14 @@ class CliTest(HistoryTestCase):
 
 
 class NamingTest(CliTest):
+    def setUp(self):
+        super().setUp()
+        # Que nombrar no encuentre la carpeta del protector de esta máquina.
+        previous = os.environ.get("ARCADE_HOF_PROTECTOR")
+        os.environ["ARCADE_HOF_PROTECTOR"] = str(self.db_path.parent / "sin-protector")
+        self.addCleanup(lambda: os.environ.pop("ARCADE_HOF_PROTECTOR") if previous is None
+                        else os.environ.__setitem__("ARCADE_HOF_PROTECTOR", previous))
+
     def test_nombrar_record_sin_iniciales(self):
         self.db.close()
         self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))

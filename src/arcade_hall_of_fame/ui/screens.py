@@ -57,6 +57,11 @@ class Screen:
     status: str = ""  # línea de estado: juegos registrados y último escaneo
 
 
+def plural(count: int, singular: str, plural_form: str) -> str:
+    """``1 JUEGO``, ``2 JUEGOS``: el número con la palabra en singular o plural."""
+    return f"{count} {singular if count == 1 else plural_form}"
+
+
 def rank_color(position: int) -> str:
     return RANK_COLORS[position - 1] if 1 <= position <= len(RANK_COLORS) else GOOD
 
@@ -90,7 +95,7 @@ def ranking_screens(db: Database, players: Players, names: GameNames,
     unnamed = [g for g in leaders(db, players) if g.unnamed]
     if unnamed and show_no_initials:
         count = len(unnamed)
-        notes.append((f"{count} {'RECORD' if count == 1 else 'RECORDS'} SIN NOMBRE ({UNNAMED}): NO SUMAN", DIM))
+        notes.append((f"{plural(count, 'RECORD', 'RECORDS')} SIN NOMBRE ({UNNAMED}): NO SUMAN", DIM))
     columns = (Column("POS", 4), Column("JUGADOR", 10), Column("PRIMEROS", 8, "right"), Column("JUEGOS", 16))
     pages = _pages(rows)
     return [
@@ -169,7 +174,7 @@ def game_screen(db: Database, game: str, players: Players, names: GameNames,
 def status_line(db: Database, count: int) -> str:
     scan = db.last_scan()
     when = local_stamp(scan["finished_utc"]) if scan is not None else "-"
-    return f"{count} JUEGOS  ULTIMO ESCANEO {when}"
+    return f"{plural(count, 'JUEGO', 'JUEGOS')}  ULTIMO ESCANEO {when}"
 
 
 def build_screens(db: Database, players: Players, names: Optional[GameNames] = None,
