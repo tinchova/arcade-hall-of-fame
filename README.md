@@ -124,6 +124,8 @@ Puerto fijo: **47474** (se cambia con `PUERTO=...`). Direcciones para abrirla de
 
 Para probarla sin instalar: `~/arcade-hall-of-fame/hof web` (Ctrl+C para cerrarla).
 
+Hay un secreto en la web.
+
 ### Desde fuera de casa, por Tailscale
 
 Si la Mac está en un tailnet de [Tailscale](https://tailscale.com/), la página también responde a los equipos del tailnet, sin abrir ningún puerto en el router:

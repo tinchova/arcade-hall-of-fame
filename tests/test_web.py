@@ -242,6 +242,25 @@ class WebTest(unittest.TestCase):
         self.assertIn("las que no lo superan no quedan guardadas", page)
         self.assertNotIn('name="historial"', page)  # todavía no hay récords anteriores
 
+
+    def test_easter_egg_y_csp(self):
+        import base64
+        import hashlib
+        import re
+        response, page = self.request("GET", "/")
+        self.assertEqual(response.status, 200)
+        self.assertIn('<h1 id="titulo">', page)
+        scripts = re.findall(r"<script>(.*?)</script>", page, re.S)
+        self.assertEqual(len(scripts), 1)
+        self.assertIn("BY TINCHOVA007", scripts[0])
+        csp = response.getheader("Content-Security-Policy")
+        digest = base64.b64encode(hashlib.sha256(scripts[0].encode("utf-8")).digest()).decode("ascii")
+        self.assertIn(f"script-src 'sha256-{digest}';", csp)
+        for part in ("default-src 'none'", "form-action 'self'", "frame-ancestors 'none'", "base-uri 'none'"):
+            self.assertIn(part, csp)
+        self.assertNotIn("unsafe-eval", csp)
+        self.assertNotIn("script-src 'unsafe-inline'", csp)
+        self.assertEqual(response.getheader("X-Content-Type-Options"), "nosniff")
     def test_records_anteriores_en_la_pagina(self):
         db = self.db()
         add_table(db, "pacman", [(2000, None)], "2026-11-20T10:00:00+00:00")  # supera al 1400
@@ -267,7 +286,8 @@ class WebTest(unittest.TestCase):
         self.assertIn("RARO TITULO", page)
         self.assertIn("sin definición en hi2txt-xml", page)
         _, page = self.request("GET", "/?ver=<script>")
-        self.assertNotIn("<script>", page)
+        self.assertEqual(page.count("<script>"), 1)  # solo el del easter egg
+        self.assertNotIn("ver=<script>", page)
 
     def test_nombrar_quitar_y_alias(self):
         response, _ = self.request("POST", "/nombrar", {"juego": "galaga", "puesto": "2", "puntos": "300",

@@ -47,6 +47,8 @@ abrir ni redirigir el puerto en el router).
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import html
 import ipaddress
 import re
@@ -206,7 +208,7 @@ def new_marks(db: Database, since: Optional[str]) -> Tuple[Set[str], Set[Tuple[s
 CSS = """
 :root{color-scheme:dark}
 *{box-sizing:border-box}
-body{margin:0;background:#000;color:#fff;font:600 18px/1.35 ui-monospace,Menlo,Consolas,monospace;
+body{margin:0;background:#000;color:#fff;font:600 18px/1.35 ui-monospace,Menlo,Consolas,monospace;touch-action:manipulation;
   text-transform:uppercase;letter-spacing:.04em}
 header{padding:16px 16px 0;text-align:center}
 h1{color:#f43f5e;font-size:30px;margin:0;text-shadow:3px 3px #4c1d95}
@@ -252,7 +254,83 @@ footer{color:#787878;font-size:13px;padding:0 16px 20px;text-align:center}
   .selector{display:flex;margin:0 0 16px}
   h1{font-size:24px}
 }
+#titulo{cursor:default;-webkit-user-select:none;user-select:none;touch-action:manipulation;
+  -webkit-tap-highlight-color:transparent}
+#egg{position:fixed;inset:0;z-index:99;background:#000;overflow:hidden;touch-action:none;
+  -webkit-user-select:none;user-select:none;cursor:crosshair}
+#egg .hud{position:absolute;top:10px;left:0;right:0;text-align:center;color:#3de8ff;font-size:18px;
+  pointer-events:none;z-index:2}
+#egg .lente{position:absolute;left:0;top:0;width:96px;height:52px;cursor:pointer}
+#egg .lente svg{width:100%;height:100%;display:block;pointer-events:none}
+#egg .px{position:absolute;width:10px;height:10px;background:#8b0016;pointer-events:none;
+  animation:egg-px .45s steps(4) forwards}
+#egg .px.b{background:#fff}
+@keyframes egg-px{to{transform:translate(var(--dx),var(--dy));opacity:0}}
+#egg .fin{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:18px;text-align:center;padding:16px;z-index:3;background:rgba(0,0,0,.72)}
+#egg .fin b{color:#f43f5e;font-size:clamp(30px,9vw,84px);text-shadow:4px 4px #4c1d95;letter-spacing:.06em}
+#egg .fin span{color:#facc15;font-size:22px}
+#egg .fin i{color:#787878;font-size:14px;font-style:normal}
 """
+
+
+# Easter egg: 7 toques seguidos en el título abren un minijuego (lentes que caen).
+# Va inline y la CSP lo permite por su hash, no con 'unsafe-inline'.
+EGG_JS = """(function(){
+var h=document.getElementById('titulo');if(!h)return;
+var taps=[],box=null,end=0,raf=0;
+var LENTE='<svg viewBox="0 0 120 64" aria-hidden="true"><path fill="#8b0016" d="M5 4L112 7Q120 8 119 16L117 30Q114 44 100 44L88 44Q77 44 73 35Q69 27 62 27Q55 27 51 35Q47 44 34 43L22 42Q10 41 8 30L5 17Q3 9 5 4Z"/><path d="M36 54L66 59" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>';
+h.addEventListener('click',function(){
+  var t=Date.now();taps.push(t);taps=taps.filter(function(x){return t-x<3000;});
+  if(taps.length>=7&&!box){taps=[];abrir();}
+});
+document.addEventListener('keydown',function(e){if(box&&e.key==='Escape'){e.preventDefault();cerrar();}});
+function abrir(){
+  box=document.createElement('div');box.id='egg';box.setAttribute('role','dialog');box.setAttribute('aria-label','Minijuego');
+  var hud=document.createElement('div');hud.className='hud';box.appendChild(hud);
+  document.body.appendChild(box);document.documentElement.style.overflow='hidden';
+  var lentes=[],puntos=0,t0=performance.now(),ult=t0-1000,prev=t0,fin=false;
+  function marcador(now){hud.textContent='LENTES '+puntos+'/20  \\u00b7  '+Math.max(0,Math.ceil(30-(now-t0)/1000))+'s';}
+  box.addEventListener('pointerdown',function(e){
+    e.preventDefault();
+    if(fin){if(Date.now()>end)cerrar();return;}
+    var el=e.target.closest&&e.target.closest('.lente');if(!el)return;
+    for(var i=0;i<lentes.length;i++)if(lentes[i].el===el){var l=lentes[i];lentes.splice(i,1);pop(l);puntos++;break;}
+  });
+  function pop(l){
+    var cx=l.x+l.w/2,cy=l.y+l.w*0.27;l.el.remove();
+    for(var i=0;i<10;i++){var p=document.createElement('div');p.className='px'+(i%4?'':' b');
+      var a=i/10*6.283,r=30+Math.random()*30;p.style.left=cx+'px';p.style.top=cy+'px';
+      p.style.setProperty('--dx',Math.round(Math.cos(a)*r)+'px');p.style.setProperty('--dy',Math.round(Math.sin(a)*r)+'px');
+      box.appendChild(p);setTimeout(p.remove.bind(p),500);}
+  }
+  function nuevo(){
+    var w=70+Math.random()*60,el=document.createElement('div');el.className='lente';el.innerHTML=LENTE;
+    el.style.width=w+'px';el.style.height=(w*0.54)+'px';box.appendChild(el);
+    lentes.push({el:el,w:w,x:Math.random()*(innerWidth-w),y:-w,v:55+Math.random()*75,a:Math.random()*360,g:(Math.random()-0.5)*40});
+  }
+  function paso(now){
+    if(!box)return;
+    var dt=Math.min(0.05,(now-prev)/1000);prev=now;
+    if(now-ult>650){ult=now;nuevo();}
+    for(var i=lentes.length-1;i>=0;i--){var l=lentes[i];l.y+=l.v*dt;l.a+=l.g*dt;
+      if(l.y>innerHeight+20){l.el.remove();lentes.splice(i,1);continue;}
+      l.el.style.transform='translate('+l.x.toFixed(1)+'px,'+l.y.toFixed(1)+'px) rotate('+l.a.toFixed(1)+'deg)';}
+    marcador(now);
+    if(puntos>=20||now-t0>=30000){terminar();return;}
+    raf=requestAnimationFrame(paso);
+  }
+  function terminar(){
+    fin=true;end=Date.now()+800;
+    var f=document.createElement('div');f.className='fin';
+    f.innerHTML='<b>BY TINCHOVA007</b><span>PUNTAJE '+puntos+'</span><i>toc\\u00e1 o Esc para volver</i>';
+    box.appendChild(f);
+  }
+  raf=requestAnimationFrame(paso);
+}
+function cerrar(){cancelAnimationFrame(raf);if(box)box.remove();box=null;document.documentElement.style.overflow='';}
+})();"""
+EGG_CSP = "'sha256-" + base64.b64encode(hashlib.sha256(EGG_JS.encode("utf-8")).digest()).decode("ascii") + "'"
 
 
 def _e(text: object) -> str:
@@ -295,7 +373,7 @@ def render_page(db: Database, names: Dict[str, str], file_players: Players, view
     out = ['<!doctype html><html lang="es"><head><meta charset="utf-8">',
            '<meta name="viewport" content="width=device-width,initial-scale=1">',
            '<title>Salón de la Fama</title>', f"<style>{CSS}</style></head><body>",
-           "<header><h1>Salón de la Fama</h1></header>", '<div class="wrap">']
+           '<header><h1 id="titulo">Salón de la Fama</h1></header>', '<div class="wrap">']
 
     # Lista de la izquierda (en el celular, un selector arriba). Los juegos con
     # filas sin nombre llevan la cantidad ("2?").
@@ -329,7 +407,8 @@ def render_page(db: Database, names: Dict[str, str], file_players: Players, view
         fresh = {(score, initials) for game, score, initials in new_rows if game == view}
         out.append(_game_html(view, names.get(view, view), games[view] + previous_rows(db, view), players, fresh,
                               view in new_games, keeps_only_top(db, view)))
-    out.append("</main></div><footer>Solo funciona dentro de la red de casa (o por Tailscale).</footer></body></html>")
+    out.append("</main></div><footer>Solo funciona dentro de la red de casa (o por Tailscale).</footer>"
+               f"<script>{EGG_JS}</script></body></html>")
     return "".join(out)
 
 
@@ -454,7 +533,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "same-origin")
         self.send_header("Content-Security-Policy",
-                         "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; "
+                         f"default-src 'none'; style-src 'unsafe-inline'; script-src {EGG_CSP}; form-action 'self'; "
                          "frame-ancestors 'none'; base-uri 'none'")
         self.end_headers()
         if self.command != "HEAD":
