@@ -32,12 +32,12 @@ SUBTITLE = "#a78bfa"  # subtítulo (violeta)
 HEADER = "#3de8ff"    # encabezados de columna (celeste)
 HEADER_DIM = "#5b9fb0"  # línea de estado (celeste apagado)
 ORO = "#facc15"       # 1º puesto
-PLATA = "#dbe7f5"     # 2º puesto (gris azulado brillante, se distingue del resto)
+PLATA = "#b8cce6"     # 2º puesto (plata acerada: azulada, se distingue del blanco y del resto)
 BRONCE = "#fb923c"    # 3º puesto
-RESTO = "#a8a8a8"     # del 4º en adelante y jugadores de últimos récords (gris claro)
+RESTO = "#9e9e9e"     # del 4º en adelante y jugadores de últimos récords (gris claro)
 PUNTOS = "#ffffff"    # puntos, en todas las pantallas
 JUEGO = HEADER        # nombre de juego, en todas las pantallas (celeste)
-FECHA = "#808080"     # fechas (gris más apagado que RESTO)
+FECHA = "#787878"     # fechas (gris más apagado que RESTO)
 DIM = FECHA           # texto secundario: notas, pie, mensajes y filas ??? sin nombre
 PODIUM = (ORO, PLATA, BRONCE)
 
