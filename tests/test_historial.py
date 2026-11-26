@@ -160,7 +160,24 @@ class ScanTest(HistoryTestCase):
         self.write("solotop", bytes([0x14, 0x00]))
         self.scan()
         leader = leaders(self.db)[0]
-        self.assertEqual((leader.top_score, leader.holders, leader.reason), ("1400", (), "el juego no guarda iniciales"))
+        self.assertEqual((leader.top_score, leader.holders, leader.unnamed), ("1400", (), True))
+        self.assertIn("el juego no guarda iniciales", leader.reason)
+
+    def test_juego_nuevo_despues_de_la_linea_base_cuenta_como_record(self):
+        self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
+        self.assertEqual(self.scan().records, [])  # primer escaneo: línea base
+        self.write("solotop", bytes([0x14, 0x00]))
+        self.write("democlon", demo_file(FACTORY))  # juego nuevo con solo fábrica: no es récord
+        (self.db_dir / "juego2.xml").write_bytes(DEMO_BCD)
+        self.write("juego2", demo_file([(700, "QZ"), (10, "AB"), (5, "CD")]))
+        report = self.scan()
+        self.assertEqual(sorted(report.records), [("juego2", None, "700", ["QZ"]), ("solotop", None, "1400", [])])
+        events = {e["game"]: e for e in recent_records(self.db)}
+        self.assertEqual(set(events), {"juego2", "solotop"})
+        self.assertEqual((events["solotop"]["previous_top"], events["solotop"]["unnamed"]), (None, True))
+        self.assertFalse(events["juego2"]["unnamed"])
+        note = self.db.observation(self.db.source("solotop")["current_observation_id"])["note"]
+        self.assertEqual(note, "primer récord de un juego nuevo")
 
     def test_no_legibles_sin_duplicar_y_sin_tabla(self):
         self.write("desconocido", b"\x00\x01")
@@ -236,7 +253,37 @@ class ScanTest(HistoryTestCase):
         db = Database(path)
         self.addCleanup(db.close)
         self.assertEqual(db.unreadable(), [])
-        self.assertEqual(db.conn.execute("PRAGMA user_version").fetchone()[0], 2)
+        self.assertEqual(db.conn.execute("PRAGMA user_version").fetchone()[0], 3)
+        self.assertEqual(db.record_names(), [])
+
+    def test_base_de_la_version_2_agrega_records_de_juegos_nuevos(self):
+        """Al actualizar, el primer récord de un juego aparecido después de la línea base cuenta."""
+        from arcade_hall_of_fame.storage import SCHEMA_V2
+
+        path = Path(self.db_path).with_name("v2.sqlite3")
+        conn = sqlite3.connect(str(path))
+        conn.executescript(SCHEMA + SCHEMA_V2)
+        rows = [  # (id, juego, detectado, nota, máximo, iniciales, fábrica)
+            (1, "demo", "2026-11-25T10:00:00+00:00", "línea base", 900, "XY", 0),
+            (2, "solotop", "2026-11-25T11:00:00+00:00", "línea base", 1400, None, 0),
+            (3, "democlon", "2026-11-25T11:00:00+00:00", "línea base", 500, "AA", 1),
+        ]
+        for oid, game, when, note, top, initials, factory in rows:
+            conn.execute("INSERT INTO observations VALUES (?, ?, 'h', ?, 'aceptada', ?, ?, ?, 'v', 'r')",
+                         (oid, game, when, note, str(top), top))
+            conn.execute("INSERT INTO entries VALUES (?, 1, ?, ?, ?, ?)", (oid, str(top), top, initials, factory))
+            conn.execute("INSERT INTO sources VALUES (?, ?, 'h', ?, ?, NULL, ?)", (game, game + ".hi", when, when, oid))
+        conn.execute("INSERT INTO scans VALUES (1, '2026-11-25T10:00:00+00:00', '2026-11-25T10:00:01+00:00', 1, 1, 0, 0)")
+        conn.execute("PRAGMA user_version = 2")
+        conn.commit()
+        conn.close()
+        db = Database(path)
+        self.addCleanup(db.close)
+        events = recent_records(db)
+        self.assertEqual([(e["game"], e["previous_top"], e["new_top"], e["unnamed"]) for e in events],
+                         [("solotop", None, "1400", True)])
+        Database(path).close()  # abrir otra vez no duplica
+        self.assertEqual(len(recent_records(db)), 1)
 
     def test_originales_intactos(self):
         self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
@@ -313,7 +360,7 @@ class CliTest(HistoryTestCase):
         self.assertIn("Récord batido en demo: 900 -> 950 (QZ)", self.run_cli("escanear", str(self.saves)))
         ranking = self.run_cli("ranking")
         self.assertIn("QZ", ranking)
-        self.assertIn("solotop (1400): el juego no guarda iniciales", ranking)
+        self.assertIn("solotop (1400): el juego no guarda iniciales; falta ponerle nombre", ranking)
         table = self.run_cli("juego", "demo")
         self.assertIn("950", table)
         self.assertIn("fábrica", table)
@@ -336,6 +383,7 @@ class CliTest(HistoryTestCase):
         self.assertIn(REASON_NO_DEFINITION, text)
         self.assertNotIn("demo", text)
         self.assertIn("NUEVO  sinlectura", self.run_cli("pendientes"))  # el anterior no marcó
+        self.assertIn("No hay récords sin nombre", text)
         self.assertNotIn("NUEVO  sinlectura", self.run_cli("pendientes"))
         path = self.saves / "sinlectura.hi"
         stat = path.stat()
@@ -343,6 +391,60 @@ class CliTest(HistoryTestCase):
         self.run_cli("escanear", str(self.saves))
         self.assertIn("CAMBIÓ  sinlectura", self.run_cli("pendientes"))
         self.db = Database(self.db_path)
+
+
+class NamingTest(CliTest):
+    def test_nombrar_record_sin_iniciales(self):
+        self.db.close()
+        self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
+        self.write("solotop", bytes([0x14, 0x00]))
+        self.run_cli("escanear", str(self.saves))
+        text = self.run_cli("sin-nombre")
+        self.assertIn("Récords sin nombre: 1", text)
+        self.assertIn("solotop  1400", text)
+        self.assertNotIn("demo", text)
+        self.assertIn("solotop  1400", self.run_cli("pendientes"))
+        self.assertIn("el récord vigente es 1400, no 99", self.run_cli("nombrar", "solotop", "nc", "--puntos", "99"))
+        self.assertIn("ya tiene iniciales", self.run_cli("nombrar", "demo", "NC"))
+        self.assertIn("no hay una tabla registrada para otro", self.run_cli("nombrar", "otro", "NC"))
+        self.assertIn("no pueden estar vacías", self.run_cli("nombrar", "solotop", "  "))
+        self.assertIn("queda a nombre de NC", self.run_cli("nombrar", "solotop", "nc", "--puntos", "1400"))
+        self.assertIn("No hay récords sin nombre", self.run_cli("sin-nombre"))
+        self.assertRegex(self.run_cli("ranking"), r"NC +1 +solotop")
+        self.assertIn("nombre puesto con 'nombrar'", self.run_cli("juego", "solotop"))
+        self.assertIn("(antes: NC)", self.run_cli("nombrar", "solotop", "ND"))
+        db = Database(self.db_path)
+        row = db.record_name("solotop", "1400")
+        self.assertEqual((row["initials"], row["origin"]), ("ND", "comando"))
+        self.assertEqual([(r.initials, r.count) for r in player_ranking(db)], [("ND", 1), ("XY", 1)])
+        db.close()
+        # Si el récord cambia, el nuevo queda sin nombre y el nombre viejo no suma.
+        self.write("solotop", bytes([0x20, 0x00]))
+        self.assertIn("Récord batido en solotop: 1400 -> 2000 (sin iniciales", self.run_cli("escanear", str(self.saves)))
+        self.assertIn("solotop  2000", self.run_cli("sin-nombre"))
+        records = self.run_cli("records")
+        self.assertIn("1400 (ND)", records)
+        self.assertIn("???", records)
+        db = Database(self.db_path)
+        self.assertEqual([(r.initials, r.count) for r in player_ranking(db)], [("XY", 1)])
+        self.assertIsNotNone(db.record_name("solotop", "1400"))  # sigue guardado
+        db.close()
+        self.assertIn("no tiene nombre puesto", self.run_cli("nombrar", "solotop", "--quitar"))
+        self.run_cli("nombrar", "solotop", "NC")
+        self.assertIn("quedó otra vez sin nombre", self.run_cli("nombrar", "solotop", "--quitar"))
+        self.db = Database(self.db_path)
+
+    def test_no_se_nombra_un_record_de_fabrica(self):
+        from arcade_hall_of_fame.naming import NamingError, assign_name, clean_initials
+
+        self.write("democlon", demo_file(FACTORY))
+        self.scan()
+        with self.assertRaisesRegex(NamingError, "fábrica"):
+            assign_name(self.db, "democlon", "NC", "2026-11-25T12:00:00+00:00")
+        self.assertEqual(clean_initials("  n  c "), "N C")
+        for bad in ("???", "A" * 11, "A\x00B"):
+            with self.assertRaises(NamingError):
+                clean_initials(bad)
 
 
 if __name__ == "__main__":

@@ -7,15 +7,18 @@ from datetime import datetime
 from typing import List, Optional, Sequence, Tuple
 
 from ..names import GameNames
+from ..naming import UNNAMED, entry_name
 from ..players import Players
 from ..rankings import leaders, player_ranking, recent_records
 from ..storage import Database
 
 # Paleta (tokens semánticos). Base tomada de las paletas "Gaming" y
 # "Arcade & Retro Game" del skill ui-ux-pro-max; contraste del texto sobre el
-# fondo de 4.5:1 o más.
-BG = "#0f0f23"        # fondo
-SCANLINE = "#13132c"  # líneas de barrido, apenas visibles
+# fondo de 4.5:1 o más (lo comprueba test_interfaz). El fondo es negro puro
+# para que se confunda con los bordes negros de la pantalla; por eso las
+# líneas de barrido son del mismo color (no se dibujan).
+BG = "#000000"        # fondo
+SCANLINE = BG         # líneas de barrido: desactivadas sobre negro puro
 CARD = "#1e1c35"      # banda detrás del primer puesto
 FRAME = "#4c1d95"     # bordes y sombra del título
 TITLE = "#f43f5e"     # título (rosa neón)
@@ -52,7 +55,6 @@ class Screen:
     page: str = ""
     highlight_first: bool = True
     status: str = ""  # línea de estado: juegos registrados y último escaneo
-    no_initials: bool = False  # juego que no guarda iniciales
 
 
 def rank_color(position: int) -> str:
@@ -84,15 +86,11 @@ def ranking_screens(db: Database, players: Players, names: GameNames,
          (str(r.count), TEXT), (", ".join(names.name(g) for g in r.games), DIM)]
         for r in ranking
     ]
-    without = [g for g in leaders(db, players) if not g.holders
-               and (show_no_initials or g.reason != "el juego no guarda iniciales")]
     notes: List[Cell] = []
-    if without:
-        if show_no_initials:
-            text = f"{len(without)} SIN TITULAR: FABRICA O SIN INICIALES"
-        else:
-            text = f"{len(without)} {'JUEGO' if len(without) == 1 else 'JUEGOS'} SIN TITULAR: TABLA DE FABRICA"
-        notes.append((text, DIM))
+    unnamed = [g for g in leaders(db, players) if g.unnamed]
+    if unnamed and show_no_initials:
+        count = len(unnamed)
+        notes.append((f"{count} {'RECORD' if count == 1 else 'RECORDS'} SIN NOMBRE ({UNNAMED}): NO SUMAN", DIM))
     columns = (Column("POS", 4), Column("JUGADOR", 10), Column("PRIMEROS", 8, "right"), Column("JUEGOS", 16))
     pages = _pages(rows)
     return [
@@ -102,46 +100,70 @@ def ranking_screens(db: Database, players: Players, names: GameNames,
     ]
 
 
-def records_screen(db: Database, players: Players, names: GameNames, limit: int = ROWS_PER_PAGE) -> Screen:
+def records_screen(db: Database, players: Players, names: GameNames, limit: int = ROWS_PER_PAGE,
+                   show_no_initials: bool = False) -> Screen:
+    """Últimos récords. Los que no tienen nombre se ocultan (o se muestran como ???)."""
     rows = []
-    for e in recent_records(db, limit, players):
+    # Se piden de más por si hay que saltear récords sin nombre.
+    for e in recent_records(db, limit * 5, players):
+        if e["unnamed"] and not show_no_initials:
+            continue
+        holders = UNNAMED if e["unnamed"] else ", ".join(e["new_holders"])
         rows.append([
             (local_stamp(e["detected_utc"]), DIM),
             (names.name(e["game"]), HEADER),
             (e["new_top"], SUBTITLE),
-            (", ".join(e["new_holders"]) or "-", GOOD),
+            (holders, DIM if e["unnamed"] else GOOD),
         ])
+        if len(rows) == limit:
+            break
     columns = (Column("FECHA", 11), Column("JUEGO", 13), Column("PUNTOS", 8, "right"), Column("JUGADOR", 7))
     return Screen("records", "ULTIMOS RECORDS", "RECORDS BATIDOS DETECTADOS", columns, rows, [],
                   "TODAVIA NO HAY RECORDS BATIDOS", highlight_first=False)
 
 
-def game_screen(db: Database, game: str, players: Players, names: GameNames) -> Optional[Screen]:
+def game_screen(db: Database, game: str, players: Players, names: GameNames,
+                show_no_initials: bool = False) -> Optional[Screen]:
+    """Tabla de un juego, o None si no tiene nada para mostrar.
+
+    Las entradas de fábrica no se muestran. Las filas sin iniciales se muestran
+    con el nombre puesto a mano (``nombrar``); si no tienen, solo con
+    ``show_no_initials`` y como ``???``. Se conserva la posición original.
+    """
     source = db.source(game)
     if source is None or not source["current_observation_id"]:
         return None
-    entries = db.entries(source["current_observation_id"])
-    no_initials = all(e["initials"] is None for e in entries)
+    observation = db.observation(source["current_observation_id"])
+    top = observation["top_score_num"]
     rows = []
-    for e in entries[:ROWS_PER_PAGE]:
-        position = e["position"]
+    first_counts = False
+    any_unnamed = False
+    for e in db.entries(observation["id"]):
         if e["factory"]:
-            color = DIM
+            continue
+        name = entry_name(db, game, e)
+        if name is None and not show_no_initials:
+            continue
+        if not rows:
+            first_counts = name is not None and top is not None and e["score_num"] == top
+        position = e["position"]
+        if name is None:
+            any_unnamed = True
+            color, shown = DIM, UNNAMED
         else:
-            color = rank_color(position)
-        name = "" if e["initials"] is None else players.name(e["initials"]) if e["initials"].strip() else ""
-        rows.append([(ordinal(position), color), (e["score_text"], color), (name, color),
-                     ("FABRICA" if e["factory"] else "", DIM)])
+            color, shown = rank_color(position), players.name(name)
+        rows.append([(ordinal(position), color), (e["score_text"], color), (shown, color), ("", DIM)])
+        if len(rows) == ROWS_PER_PAGE:
+            break
+    if not rows:
+        return None
     notes: List[Cell] = []
-    if no_initials:
-        notes.append(("SIN INICIALES: NO SUMA AL RANKING", DIM))
-    elif any(e["factory"] for e in entries):
-        notes.append(("LA FABRICA NO SUMA AL RANKING", DIM))
+    if any_unnamed:
+        notes.append((f"{UNNAMED} SIN NOMBRE: NO SUMA AL RANKING", DIM))
     columns = (Column("POS", 4), Column("PUNTOS", 10, "right"), Column("JUGADOR", 13), Column("", 10))
-    first_counts = bool(entries) and not entries[0]["factory"] and not no_initials
     subtitle = names.detail(game) or "TABLA DEL JUEGO"  # año y fabricante, del DAT de FBNeo
     return Screen(f"juego:{game}", names.name(game), subtitle, columns, rows, notes, "TABLA VACIA",
-                  highlight_first=first_counts, no_initials=no_initials)
+                  highlight_first=first_counts)
 
 
 def status_line(db: Database, count: int) -> str:
@@ -154,15 +176,16 @@ def build_screens(db: Database, players: Players, names: Optional[GameNames] = N
                   games_between_ranking: int = 4, show_no_initials: bool = False) -> List[Screen]:
     """Secuencia de rotación: ranking, récords y juegos, volviendo al ranking cada tanto.
 
-    Los juegos que no guardan iniciales (por ejemplo, Pac-Man) se escanean y se
-    guardan igual, pero no se muestran salvo que se pida ``show_no_initials``.
+    No se muestran las entradas de fábrica (un juego que solo tiene esas no
+    aparece) ni los récords sin iniciales que todavía no tienen nombre, salvo
+    que se pida ``show_no_initials``. Todo queda guardado en la base igual.
     """
     names = names or GameNames()
     names.set_games(s["game"] for s in db.sources())
     ranking = ranking_screens(db, players, names, show_no_initials)
-    sequence: List[Screen] = list(ranking) + [records_screen(db, players, names)]
-    games = [g for g in (game_screen(db, s["game"], players, names) for s in db.sources())
-             if g is not None and (show_no_initials or not g.no_initials)]
+    sequence: List[Screen] = list(ranking) + [records_screen(db, players, names, show_no_initials=show_no_initials)]
+    games = [g for g in (game_screen(db, s["game"], players, names, show_no_initials) for s in db.sources())
+             if g is not None]
     games.sort(key=lambda screen: screen.title.lower())
     for i, screen in enumerate(games):
         if i and i % games_between_ranking == 0:

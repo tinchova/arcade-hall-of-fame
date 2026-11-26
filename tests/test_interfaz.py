@@ -73,6 +73,28 @@ class LayoutTest(unittest.TestCase):
         texts = [op[3] for op in layout(self.screen(0), 1280, 720) if op[0] == "text"]
         self.assertIn("VACIO", texts)
 
+    def test_fondo_negro_puro_y_contraste(self):
+        from arcade_hall_of_fame.ui import screens as sc
+
+        def luminance(color):
+            channels = [int(color[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+            lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+            return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+        def contrast(a, b):
+            la, lb = sorted((luminance(a), luminance(b)), reverse=True)
+            return (la + 0.05) / (lb + 0.05)
+
+        self.assertEqual(BG, "#000000")
+        for name in ("TITLE", "SUBTITLE", "HEADER", "HEADER_DIM", "TEXT", "DIM", "ALERT", "GOOD"):
+            self.assertGreaterEqual(contrast(getattr(sc, name), BG), 4.5, name)
+        for color in (sc.TEXT, sc.DIM, sc.GOOD) + sc.RANK_COLORS:  # filas sobre la banda del primer puesto
+            self.assertGreaterEqual(contrast(color, sc.CARD), 4.5, color)
+        raster = Raster(1280, 720).draw(layout(self.screen(), 1280, 720))
+        border = {raster.pixel(x, y) for x in range(1280) for y in (0, 1, 2, 3, 719)}
+        border |= {raster.pixel(x, y) for x in (0, 1, 2, 1279) for y in range(720)}
+        self.assertEqual(border, {"#000000"})  # sin líneas de barrido ni otro color en los bordes
+
     def test_png_valido_y_pixeles(self):
         raster = Raster(320, 200).draw(layout(self.screen(), 320, 200))
         self.assertEqual(raster.pixel(0, 1), BG)
@@ -97,24 +119,56 @@ class ScreensTest(HistoryTestCase):
         keys = [s.key for s in screens]
         self.assertEqual(keys[:2], ["ranking", "records"])
         self.assertEqual(keys.count("ranking"), 2)  # vuelve al ranking cada 4 juegos
-        self.assertEqual(len([k for k in keys if k.startswith("juego:")]), 7)  # solotop, oculto
+        # demo (solo fábrica) y solotop (sin iniciales ni nombre) no aparecen
+        self.assertEqual(len([k for k in keys if k.startswith("juego:")]), 6)
         ranking = screens[0]
         self.assertEqual(ranking.rows[0][1][0], "AB")
         self.assertEqual(ranking.rows[0][2][0], "6")
-        self.assertEqual(ranking.notes[0][0], "1 JUEGO SIN TITULAR: TABLA DE FABRICA")
+        self.assertEqual(ranking.notes, [])
         by_key = {s.key: s for s in screens}
-        self.assertEqual(by_key["juego:demo"].rows[0][3][0], "FABRICA")
-        self.assertFalse(by_key["juego:demo"].highlight_first)
+        self.assertNotIn("juego:demo", by_key)
         self.assertNotIn("juego:solotop", by_key)
         self.assertEqual(by_key["records"].rows, [])
         self.assertEqual(by_key["records"].columns[3].label, "JUGADOR")
         shown = {s.key: s for s in build_screens(self.db, Players(), show_no_initials=True)}
-        self.assertIn("SIN INICIALES", shown["juego:solotop"].notes[0][0])
-        self.assertEqual(shown["ranking"].notes[0][0], "2 SIN TITULAR: FABRICA O SIN INICIALES")
+        self.assertNotIn("juego:demo", shown)  # la fábrica no se muestra nunca
+        self.assertEqual([c[0] for c in shown["juego:solotop"].rows[0][:3]], ["1.", "1400", "???"])
+        self.assertFalse(shown["juego:solotop"].highlight_first)
+        self.assertEqual(shown["juego:solotop"].notes[0][0], "??? SIN NOMBRE: NO SUMA AL RANKING")
+        self.assertEqual(shown["ranking"].notes[0][0], "1 RECORD SIN NOMBRE (???): NO SUMAN")
         for screen in shown.values():  # ninguna nota ni encabezado se recorta
             self.assertTrue(all(len(text) <= 42 for text, _ in screen.notes))
             self.assertTrue(all(len(c.label) <= c.width for c in screen.columns))
-        self.assertTrue(screens[0].status.startswith("7 JUEGOS  ULTIMO ESCANEO "))
+        self.assertTrue(screens[0].status.startswith("6 JUEGOS  ULTIMO ESCANEO "))
+
+    def test_fabrica_oculta_y_records_con_nombre(self):
+        from arcade_hall_of_fame.naming import assign_name
+
+        self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
+        self.scan()  # línea base
+        self.write("solotop", bytes([0x14, 0x00]))
+        self.scan()  # juego nuevo: su primer récord cuenta, pero no tiene nombre
+        screens = {s.key: s for s in build_screens(self.db, Players())}
+        demo = screens["juego:demo"]
+        self.assertEqual([[c[0] for c in row[:3]] for row in demo.rows], [["1.", "900", "XY"]])  # sin fábrica
+        self.assertTrue(demo.highlight_first)
+        self.assertNotIn("juego:solotop", screens)
+        self.assertEqual(screens["records"].rows, [])
+        shown = {s.key: s for s in build_screens(self.db, Players(), show_no_initials=True)}
+        self.assertEqual([c[0] for c in shown["records"].rows[0][1:]], ["solotop", "1400", "???"])
+        assign_name(self.db, "solotop", "NC", "2026-11-25T12:00:00+00:00")
+        screens = {s.key: s for s in build_screens(self.db, Players.from_data({"jugadores": {"Ana": ["NC"]}}))}
+        self.assertEqual([c[0] for c in screens["juego:solotop"].rows[0][:3]], ["1.", "1400", "Ana"])
+        self.assertTrue(screens["juego:solotop"].highlight_first)
+        self.assertEqual([c[0] for c in screens["records"].rows[0][1:]], ["solotop", "1400", "Ana"])
+        self.assertIn(["Ana", "1"], [[r[1][0], r[2][0]] for r in screens["ranking"].rows])
+
+    def test_jugador_debajo_de_la_fabrica_conserva_su_posicion(self):
+        self.write("demo", demo_file([(500, "AA"), (450, "QZ"), (300, "CC")]))
+        self.scan()
+        screen = {s.key: s for s in build_screens(self.db, Players())}["juego:demo"]
+        self.assertEqual([[c[0] for c in row[:3]] for row in screen.rows], [["2.", "450", "QZ"]])
+        self.assertFalse(screen.highlight_first)  # no es el récord del juego
 
     def test_ranking_paginado(self):
         for i in range(12):

@@ -12,7 +12,8 @@ que ES-DE nunca lea una imagen a medio escribir. Se borran las imágenes propias
 (``hof-*.png``) que ya no corresponden; los archivos ajenos no se tocan.
 
 Junto a las imágenes queda ``hof-pendientes.txt``, con los juegos que tienen un
-récord guardado que todavía no se puede leer (ver el comando ``pendientes``).
+récord guardado que todavía no se puede leer (ver el comando ``pendientes``), y
+los récords sin iniciales a los que falta ponerles nombre (``sin-nombre``).
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ from .ui.screens import Screen
 PREFIX = "hof-"
 MANIFEST = ".hof-protector.json"
 TEMP_SUFFIX = ".part"
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2  # 2: fondo negro, sin fábrica, nombres puestos a mano
 PENDING_FILE = PREFIX + "pendientes.txt"
 
 
@@ -54,6 +55,11 @@ def data_state(db: Database, options) -> str:
         "SELECT GROUP_CONCAT(game || ':' || COALESCE(current_observation_id, ''), ',') FROM "
         "(SELECT game, current_observation_id FROM sources ORDER BY game)"
     ).fetchone()[0]
+    named = db.conn.execute(
+        "SELECT GROUP_CONCAT(game || ':' || score_text || ':' || initials, ',') FROM "
+        "(SELECT game, score_text, initials FROM record_names ORDER BY game, score_text)"
+    ).fetchone()[0]
+    events = db.conn.execute("SELECT COALESCE(MAX(id), 0), COUNT(*) FROM record_events").fetchone()
     flat = []
     for item in options:
         flat.extend(item if isinstance(item, (list, tuple)) else [item])
@@ -61,7 +67,7 @@ def data_state(db: Database, options) -> str:
     # si ES-DE agrega nombres, las imágenes se actualizan.
     files = [(item, Path(item).stat().st_size, Path(item).stat().st_mtime_ns)
              for item in flat if isinstance(item, str) and Path(item).is_file()]
-    text = repr((FORMAT_VERSION, tuple(row), accepted, flat, files))
+    text = repr((FORMAT_VERSION, tuple(row), accepted, named, tuple(events), flat, files))
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 

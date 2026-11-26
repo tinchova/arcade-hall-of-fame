@@ -8,6 +8,10 @@ Si el juego no se puede leer (no hay definición, usa operaciones no soportadas 
 el archivo no coincide con ella), no es un error pasajero: se anota en la base
 como récord sin leer, con el motivo y la fecha de modificación del archivo, y se
 lista con el comando ``pendientes``.
+
+El primer escaneo (base sin tablas) es la línea base y no anuncia récords. Un
+juego que aparece después (un ``.hi`` nuevo) sí cuenta su primer récord en
+"últimos récords", salvo que su máximo sea una entrada de fábrica.
 """
 
 from __future__ import annotations
@@ -26,7 +30,7 @@ from .hi2txt.formats import render, to_number
 from .models import (DefinitionError, FormatError, HighScoreError, IncompatibleFile, MissingDefinition,
                      SourceReadError, UnsupportedDefinition)
 from .reader import read_source
-from .storage import Database
+from .storage import BASELINE_NOTE, NEW_GAME_NOTE, Database
 
 LOWER_TOP_NOTE = "el máximo bajó: posible reinicio o restauración; no reemplaza la tabla vigente"
 
@@ -141,6 +145,7 @@ def scan(
 
     report = ScanReport()
     started = now()
+    baseline = not db.has_observations()
     for path in sorted(p for p in folder.iterdir() if p.is_file() and p.suffix.lower() == ".hi"):
         report.files += 1
         game = path.stem
@@ -173,12 +178,13 @@ def scan(
                     report.new_unreadable.append(game)
                 report.unreadable.append((game, reason[0]))
             continue
-        _record(db, game, path.name, file_hash, rows, stamp, definitions_revision, report)
+        _record(db, game, path.name, file_hash, rows, stamp, definitions_revision, report, baseline)
     db.add_scan(started, now(), report.files, len(report.new_observations), len(report.unchanged), len(report.errors))
     return report
 
 
-def _record(db: Database, game, file_name, file_hash, rows, stamp, revision, report: ScanReport) -> None:
+def _record(db: Database, game, file_name, file_hash, rows, stamp, revision, report: ScanReport,
+            baseline: bool = False) -> None:
     numbers = [r["score_num"] for r in rows if r["score_num"] is not None]
     top_num = max(numbers) if numbers else None
     top_text = next((r["score_text"] for r in rows if r["score_num"] == top_num), None) if numbers else None
@@ -187,7 +193,11 @@ def _record(db: Database, game, file_name, file_hash, rows, stamp, revision, rep
     current = db.observation(source["current_observation_id"]) if source and source["current_observation_id"] else None
     status, note, make_current, event = "aceptada", None, True, None
     if current is None:
-        note = "línea base"
+        note = BASELINE_NOTE if baseline else NEW_GAME_NOTE
+        top_rows = [r for r in rows if top_num is not None and r["score_num"] == top_num]
+        if not baseline and top_rows and not any(r["factory"] for r in top_rows):
+            event = {"previous_top": None, "new_top": top_text, "previous_holders": [],
+                     "new_holders": _holders(rows, top_num)}
     elif top_num is not None and current["top_score_num"] is not None:
         if top_num < current["top_score_num"]:
             status, note, make_current = "pendiente", LOWER_TOP_NOTE, False

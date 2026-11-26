@@ -8,6 +8,8 @@ Uso, desde la raíz del repositorio::
     python -m arcade_hall_of_fame records [-n 10]
     python -m arcade_hall_of_fame aceptar <juego>
     python -m arcade_hall_of_fame pendientes
+    python -m arcade_hall_of_fame sin-nombre
+    python -m arcade_hall_of_fame nombrar <juego> <iniciales>
     python -m arcade_hall_of_fame pantalla --carpeta "<carpeta de partidas>/fbneo"
     python -m arcade_hall_of_fame protector --salida <carpeta de imágenes> --carpeta "<partidas>/fbneo"
 
@@ -31,6 +33,7 @@ from .hi2txt.defaults import FactoryTables
 from .hi2txt.fetch import REVISION
 from .hi2txt.hiscore_dat import load_hiscore_dat
 from .models import HighScoreError
+from .naming import UNNAMED, NamingError, assign_name, entry_name, remove_name, unnamed_records
 from .rankings import leaders, player_ranking, recent_records
 from .scanner import scan, utc_now
 from .players import Players
@@ -68,7 +71,11 @@ def cmd_scan(args, db: Database) -> int:
     print(f"Archivos .hi: {report.files}; nuevos estados: {len(report.new_observations)}; "
           f"sin cambios: {len(report.unchanged)}; con error: {len(report.errors)}")
     for game, previous, new, holders in report.records:
-        print(f"  Récord batido en {game}: {previous} -> {new} ({', '.join(holders) or 'sin titular atribuible'})")
+        who = ", ".join(holders) or "sin iniciales: ver 'sin-nombre'"
+        if previous is None:
+            print(f"  Primer récord en {game} (juego nuevo): {new} ({who})")
+        else:
+            print(f"  Récord batido en {game}: {previous} -> {new} ({who})")
     for game in report.pending:
         print(f"  {game}: el máximo bajó; queda pendiente (ver 'aceptar')")
     for game, error in report.errors:
@@ -106,6 +113,53 @@ def pending_lines(db: Database, mark_new: bool) -> List[str]:
     return lines
 
 
+def unnamed_lines(db: Database) -> List[str]:
+    """Récords vigentes sin iniciales ni nombre (también van al archivo del protector)."""
+    rows = unnamed_records(db)
+    if not rows:
+        return ["No hay récords sin nombre."]
+    lines = [f"Récords sin nombre: {len(rows)}",
+             f"No tienen iniciales: no se muestran (o salen como {UNNAMED}) ni suman al ranking.",
+             "Para ponerles nombre: python -m arcade_hall_of_fame nombrar <juego> <iniciales>", ""]
+    table = [[r.game, r.score_text, local_time(r.detected_utc)] for r in rows]
+    headers = ["Juego", "Récord", "Desde"]
+    widths = [max(len(str(x)) for x in [h] + [row[i] for row in table]) for i, h in enumerate(headers)]
+    lines.append("  ".join(h.ljust(w) for h, w in zip(headers, widths)).rstrip())
+    lines.append("  ".join("-" * w for w in widths))
+    lines.extend("  ".join(str(c).ljust(w) for c, w in zip(row, widths)).rstrip() for row in table)
+    return lines
+
+
+def cmd_unnamed(args, db: Database) -> int:
+    print("\n".join(unnamed_lines(db)))
+    return 0
+
+
+def cmd_name(args, db: Database) -> int:
+    if args.quitar:
+        if args.iniciales:
+            print("Con --quitar no se indican iniciales.", file=sys.stderr)
+            return 2
+        score = remove_name(db, args.juego)
+        print(f"{args.juego}: el récord {score} quedó otra vez sin nombre ({UNNAMED}).")
+        return 0
+    if not args.iniciales:
+        print("Faltan las iniciales: nombrar <juego> <iniciales>", file=sys.stderr)
+        return 2
+    source = db.source(args.juego)
+    previous = None
+    if source is not None and source["current_observation_id"]:
+        observation = db.observation(source["current_observation_id"])
+        row = db.record_name(args.juego, observation["top_score_text"])
+        previous = row["initials"] if row else None
+    record = assign_name(db, args.juego, args.iniciales, utc_now(), "comando", args.puntos)
+    name = db.record_name(record.game, record.score_text)["initials"]
+    change = f" (antes: {previous})" if previous and previous != name else ""
+    print(f"{record.game}: el récord {record.score_text} queda a nombre de {name}{change}.")
+    print("Las imágenes del protector se actualizan en el próximo escaneo (o con el comando protector).")
+    return 0
+
+
 def cmd_pending(args, db: Database) -> int:
     seen = db.setting(PENDING_SEEN_KEY)
     lines = pending_lines(db, mark_new=True)
@@ -115,6 +169,8 @@ def cmd_pending(args, db: Database) -> int:
         print(f"\nNUEVO: apareció {since}; CAMBIÓ: el archivo se modificó desde entonces (otra partida).")
     if not args.sin_marcar:
         db.mark_unreadable_seen(utc_now())
+    print()
+    print("\n".join(unnamed_lines(db)))
     return 0
 
 
@@ -144,11 +200,14 @@ def cmd_game(args, db: Database) -> int:
     rows = []
     for e in db.entries(observation["id"]):
         notes = []
+        name = entry_name(db, args.nombre, e)
         if e["factory"]:
             notes.append("fábrica")
-        if e["initials"] is None:
-            notes.append("sin iniciales")
-        rows.append([str(e["position"]), e["score_text"], e["initials"] or "", ", ".join(notes)])
+        elif name is None:
+            notes.append("sin nombre")
+        elif not (e["initials"] or "").strip():
+            notes.append("nombre puesto con 'nombrar'")
+        rows.append([str(e["position"]), e["score_text"], name or (e["initials"] or ""), ", ".join(notes)])
     print(f"{args.nombre}: tabla vigente desde {local_time(observation['detected_utc'])}, "
           f"última lectura {local_time(source['last_seen_utc'])}")
     print_table(["Pos", "Puntuación", "Iniciales", "Notas"], rows)
@@ -166,8 +225,10 @@ def cmd_records(args, db: Database) -> int:
         print("Todavía no se registraron récords batidos (el primer escaneo es la línea base).")
         return 0
     print_table(["Detectado", "Juego", "Anterior", "Nuevo", "Titular"], [
-        [local_time(e["detected_utc"]), e["game"], f"{e['previous_top']} ({', '.join(e['previous_holders']) or '-'})",
-         e["new_top"], ", ".join(e["new_holders"]) or "-"]
+        [local_time(e["detected_utc"]), e["game"],
+         "juego nuevo" if e["previous_top"] is None
+         else f"{e['previous_top']} ({', '.join(e['previous_holders']) or '-'})",
+         e["new_top"], UNNAMED if e["unnamed"] else ", ".join(e["new_holders"])]
         for e in events
     ])
     return 0
@@ -266,9 +327,9 @@ def cmd_protector(args, db: Database) -> int:
     width, height = args.tamano
     state = data_state(db, (width, height, args.mostrar_sin_iniciales, args.gamelist, args.dat))
     report = generate(lambda: build_screens_for_protector(args, db), Path(args.salida), width, height, state)
-    pending_text = "\n".join(pending_lines(db, mark_new=False)) + "\n"
+    pending_text = "\n".join(pending_lines(db, mark_new=False) + [""] + unnamed_lines(db)) + "\n"
     if write_text_if_changed(Path(args.salida) / PENDING_FILE, pending_text):
-        print(f"Protector: lista de récords sin leer actualizada ({PENDING_FILE})")
+        print(f"Protector: lista de récords sin leer y sin nombre actualizada ({PENDING_FILE})")
     if report.skipped:
         print(f"Protector: sin cambios en los datos; no se reescribió nada en {args.salida}")
     else:
@@ -321,7 +382,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--sin-animacion", action="store_true", help="mostrar las filas sin aparición escalonada")
     p.add_argument("--mostrar-sin-iniciales", action="store_true",
                    default=os.environ.get("ARCADE_HOF_MOSTRAR_SIN_INICIALES", "") in ("1", "si", "true"),
-                   help="mostrar también los juegos que no guardan iniciales (ocultos por defecto)")
+                   help="mostrar también los récords sin iniciales ni nombre, como ??? (ocultos por defecto)")
     p.add_argument("--gamelist", default=os.environ.get("ARCADE_HOF_GAMELIST"),
                    help="gamelist.xml de ES-DE para los nombres de los juegos (solo lectura)")
     p.add_argument("--dat", action="append",
@@ -341,13 +402,22 @@ def build_parser() -> argparse.ArgumentParser:
                    help="gamelist.xml de ES-DE para los nombres de los juegos (solo lectura)")
     p.add_argument("--dat", action="append", help="DAT de FBNeo o carpeta con DAT")
     p.add_argument("--mostrar-sin-iniciales", action="store_true",
-                   default=os.environ.get("ARCADE_HOF_MOSTRAR_SIN_INICIALES", "") in ("1", "si", "true"))
+                   default=os.environ.get("ARCADE_HOF_MOSTRAR_SIN_INICIALES", "") in ("1", "si", "true"),
+                   help="mostrar también los récords sin iniciales ni nombre, como ??? (ocultos por defecto)")
     p.add_argument("--tamano", type=parse_size, default=(1920, 1080), help="tamaño de las imágenes (1920x1080)")
     p.set_defaults(func=cmd_protector)
     p = sub.add_parser("pendientes", help="juegos con un récord guardado que todavía no se puede leer")
     p.add_argument("--sin-marcar", action="store_true",
                    help="no dar por vistos los nuevos (la próxima vez se vuelven a destacar)")
     p.set_defaults(func=cmd_pending)
+    p = sub.add_parser("sin-nombre", help="récords vigentes sin iniciales a los que falta ponerles nombre")
+    p.set_defaults(func=cmd_unnamed)
+    p = sub.add_parser("nombrar", help="poner iniciales al récord vigente de un juego que no las tiene")
+    p.add_argument("juego")
+    p.add_argument("iniciales", nargs="?")
+    p.add_argument("--puntos", help="puntuación esperada: falla si el récord vigente es otro")
+    p.add_argument("--quitar", action="store_true", help="quitar el nombre puesto al récord vigente")
+    p.set_defaults(func=cmd_name)
     p = sub.add_parser("aceptar", help="aceptar un estado pendiente como nueva línea base")
     p.add_argument("nombre")
     p.set_defaults(func=cmd_accept)

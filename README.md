@@ -88,7 +88,9 @@ Objetivo: Python 3.11 o posterior. El núcleo también funciona con el Python 3.
    python -m arcade_hall_of_fame juego galaga # tabla vigente de un juego
    python -m arcade_hall_of_fame records      # últimos récords batidos
    python -m arcade_hall_of_fame aceptar <juego>  # aceptar un estado pendiente (máximo que bajó)
-   python -m arcade_hall_of_fame pendientes   # juegos con un récord guardado que todavía no se puede leer
+   python -m arcade_hall_of_fame pendientes   # récords que todavía no se pueden leer y récords sin nombre
+   python -m arcade_hall_of_fame sin-nombre   # récords sin iniciales a los que falta ponerles nombre
+   python -m arcade_hall_of_fame nombrar mspacman ANA  # poner iniciales al récord vigente de un juego
    ```
 
    La base SQLite va en la carpeta de datos del usuario: `~/Library/Application Support/arcade-hall-of-fame/` en macOS, `~/.local/share/arcade-hall-of-fame/` en Linux y `%LOCALAPPDATA%\arcade-hall-of-fame\` en Windows. Se puede cambiar con `--base` o con `ARCADE_HOF_BASE`; la carpeta de definiciones, con `--definiciones` o `ARCADE_HOF_DEFINICIONES`. Repetir el escaneo sobre archivos sin cambios no agrega nada.
@@ -118,7 +120,7 @@ Objetivo: Python 3.11 o posterior. El núcleo también funciona con el Python 3.
        --carpeta "$HOME/Documents/RetroArch/saves/FinalBurn Neo/fbneo"
    ```
 
-   Si los datos no cambiaron desde la vez anterior, no reescribe nada. Junto a las imágenes deja `hof-pendientes.txt`, con los juegos cuyo récord todavía no se puede leer. En macOS, `contrib/macos/instalar_protector.sh` lo deja funcionando con un LaunchAgent que se dispara cuando cambia la carpeta de partidas; ver [INTEGRACION_ESDE.md](docs/INTEGRACION_ESDE.md).
+   Si los datos no cambiaron desde la vez anterior, no reescribe nada. Junto a las imágenes deja `hof-pendientes.txt`, con los juegos cuyo récord todavía no se puede leer y los récords sin nombre. En macOS, `contrib/macos/instalar_protector.sh` lo deja funcionando con un LaunchAgent que se dispara cuando cambia la carpeta de partidas; ver [INTEGRACION_ESDE.md](docs/INTEGRACION_ESDE.md).
 
 7. Pruebas automáticas, con datos sintéticos:
 
@@ -132,7 +134,30 @@ Las iniciales son las guardadas por el juego, y el ranking las usa tal cual. Par
 {"jugadores": {"Ana": ["ANA", "A.N"]}}
 ```
 
- No dan crédito las entradas de fábrica (según las tablas `db_defaults` de hi2txt-xml) ni los juegos que no guardan iniciales, como Pac-Man. Esos juegos se guardan en la base y aparecen en `juego <nombre>`, pero la pantalla los oculta salvo con `--mostrar-sin-iniciales`. Si un juego no se puede leer (no hay definición o usa una operación que el intérprete todavía no implementa), no se muestran datos: el escaneo lo anota y `pendientes` lo lista, para escribir su definición cuando haga falta ([cómo agregar un juego nuevo](docs/COBERTURA_FBNEO.md#agregar-un-juego-nuevo)). La comprobación opcional con muestras reales y la medición de cobertura se describen en [VALIDACION.md](docs/VALIDACION.md).
+Las entradas de fábrica (según las tablas `db_defaults` de hi2txt-xml) no dan crédito y no se muestran en la pantalla ni en las imágenes; un juego que solo tiene entradas de fábrica no aparece. Siguen guardadas en la base y se ven con `juego <nombre>`.
+
+### Récords sin iniciales
+
+Algunos juegos no guardan iniciales (Pac-Man, Ms. Pac-Man) y en otros el jugador puede no cargarlas. Ese récord se guarda, pero no suma al ranking y no se muestra hasta que alguien le pone nombre:
+
+```sh
+python -m arcade_hall_of_fame sin-nombre            # cuáles faltan (también en `pendientes` y en hof-pendientes.txt)
+python -m arcade_hall_of_fame nombrar mspacman ANA  # el récord vigente de Ms. Pac-Man queda a nombre de ANA
+python -m arcade_hall_of_fame nombrar mspacman ANA --puntos 25000  # igual, pero falla si el récord ya es otro
+python -m arcade_hall_of_fame nombrar mspacman --quitar           # deshacer
+```
+
+El nombre queda en la base, asociado a esa puntuación exacta: desde ahí el juego aparece en su tabla con ese nombre y suma al ranking (también se agrupa con `jugadores.json`). Si después el récord cambia, el nuevo vuelve a quedar sin nombre. Las iniciales se pasan a mayúsculas y pueden tener hasta 10 caracteres. Las imágenes del protector se actualizan en el siguiente escaneo; para no esperar a otra partida, correr el comando `protector` (en macOS, `launchctl kickstart gui/$(id -u)/com.arcade-hall-of-fame.protector`).
+
+Con `--mostrar-sin-iniciales` (o `ARCADE_HOF_MOSTRAR_SIN_INICIALES=1`), la pantalla y las imágenes muestran también los récords sin nombre, con el jugador como `???`. Está desactivada por defecto.
+
+El primer escaneo de todo es la línea base y no anuncia récords. Un juego que aparece después (un `.hi` nuevo, como la primera partida a un juego) sí cuenta su primer récord en "últimos récords", salvo que sea una entrada de fábrica; si no tiene nombre, se muestra solo con la opción anterior.
+
+La pantalla y las imágenes usan fondo negro puro (`#000000`), para que se confundan con los bordes negros de la pantalla.
+
+### Juegos que no se pueden leer
+
+Si un juego no se puede leer (no hay definición o usa una operación que el intérprete todavía no implementa), no se muestran datos: el escaneo lo anota y `pendientes` lo lista, para escribir su definición cuando haga falta ([cómo agregar un juego nuevo](docs/COBERTURA_FBNEO.md#agregar-un-juego-nuevo)). La comprobación opcional con muestras reales y la medición de cobertura se describen en [VALIDACION.md](docs/VALIDACION.md).
 
 ## Créditos
 

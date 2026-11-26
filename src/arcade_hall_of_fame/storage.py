@@ -7,6 +7,11 @@ Los ``.hi`` de juegos que el intérprete no puede leer (sin definición, con
 operaciones no soportadas, de otro tamaño...) se anotan en ``unreadable``: se
 sabe que hay un récord guardado, pero no cuál. No se guarda ningún dato de su
 contenido.
+
+Los récords sin iniciales (juegos que no las guardan, como Ms. Pac-Man, o
+partidas en las que no se cargaron) pueden recibir un nombre con el comando
+``nombrar``; se guarda en ``record_names``, asociado al juego y a esa puntuación
+exacta (ver ``naming.py``).
 """
 
 from __future__ import annotations
@@ -18,7 +23,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 APP_NAME = "arcade-hall-of-fame"
 
 SCHEMA = """
@@ -94,6 +99,24 @@ CREATE TABLE settings (
 );
 """
 
+# Agregado en la versión 3: nombres puestos a mano a récords sin iniciales.
+# La clave es (juego, puntuación): si el récord cambia, el nuevo queda sin nombre.
+# ``origin`` dice desde dónde se puso ("comando"; más adelante, por ejemplo, "celular").
+SCHEMA_V3 = """
+CREATE TABLE record_names (
+    game TEXT NOT NULL,
+    score_text TEXT NOT NULL,
+    initials TEXT NOT NULL,
+    observation_id INTEGER REFERENCES observations(id),
+    named_utc TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    PRIMARY KEY (game, score_text)
+);
+"""
+
+BASELINE_NOTE = "línea base"
+NEW_GAME_NOTE = "primer récord de un juego nuevo"
+
 PENDING_SEEN_KEY = "pendientes_vistos_utc"
 
 
@@ -125,16 +148,52 @@ class Database:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         version = self.conn.execute("PRAGMA user_version").fetchone()[0]
-        if version == 0:
-            with self.conn:
-                self.conn.executescript(SCHEMA + SCHEMA_V2)
-                self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-        elif version == 1:
-            with self.conn:
-                self.conn.executescript(SCHEMA_V2)
-                self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-        elif version != SCHEMA_VERSION:
+        if version > SCHEMA_VERSION or version < 0:
             raise RuntimeError(f"versión de base {version} no admitida (se espera {SCHEMA_VERSION})")
+        if version < SCHEMA_VERSION:
+            self._migrate(version)
+
+    def _migrate(self, version: int) -> None:
+        """Crea o actualiza el esquema en una sola transacción (todo o nada)."""
+        steps = [(1, SCHEMA), (2, SCHEMA_V2), (3, SCHEMA_V3)]
+        self.conn.execute("BEGIN")
+        try:
+            for target, script in steps:
+                if version < target:
+                    for statement in script.split(";"):
+                        if statement.strip():
+                            self.conn.execute(statement)
+            if version > 0:
+                self._backfill_new_game_events()
+            self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            self.conn.commit()
+        except BaseException:
+            self.conn.rollback()
+            raise
+
+    def _backfill_new_game_events(self) -> None:
+        """Al pasar a la versión 3: el primer récord de un juego que apareció después
+        del primer escaneo también cuenta como récord (antes quedaba como línea base)."""
+        row = self.conn.execute("SELECT MIN(finished_utc) FROM scans WHERE new_observations > 0").fetchone()
+        if not row or row[0] is None:
+            return
+        candidates = self.conn.execute(
+            "SELECT o.* FROM observations o WHERE o.status = 'aceptada' AND o.note = ? AND o.detected_utc > ? "
+            "AND o.top_score_num IS NOT NULL "
+            "AND NOT EXISTS (SELECT 1 FROM record_events e WHERE e.observation_id = o.id) ORDER BY o.id",
+            (BASELINE_NOTE, row[0]),
+        ).fetchall()
+        for obs in candidates:
+            top = [e for e in self.entries(obs["id"]) if e["score_num"] == obs["top_score_num"]]
+            if not top or any(e["factory"] for e in top):
+                continue
+            holders = sorted({e["initials"].strip() for e in top if e["initials"] and e["initials"].strip()})
+            self.conn.execute(
+                "INSERT INTO record_events (game, observation_id, detected_utc, previous_top_text, new_top_text, "
+                "previous_holders, new_holders) VALUES (?, ?, ?, NULL, ?, '[]', ?)",
+                (obs["game"], obs["id"], obs["detected_utc"], obs["top_score_text"], json.dumps(holders)),
+            )
+            self.conn.execute("UPDATE observations SET note = ? WHERE id = ?", (NEW_GAME_NOTE, obs["id"]))
 
     def close(self) -> None:
         self.conn.close()
@@ -182,6 +241,18 @@ class Database:
         """Juegos con un ``.hi`` que no se puede leer, por nombre de juego."""
         return self.conn.execute("SELECT * FROM unreadable ORDER BY game").fetchall()
 
+    def has_observations(self) -> bool:
+        return self.conn.execute("SELECT 1 FROM observations LIMIT 1").fetchone() is not None
+
+    def record_name(self, game: str, score_text: str) -> Optional[sqlite3.Row]:
+        """Nombre puesto a mano a esa puntuación exacta del juego, si lo hay."""
+        return self.conn.execute(
+            "SELECT * FROM record_names WHERE game = ? AND score_text = ?", (game, score_text)
+        ).fetchone()
+
+    def record_names(self) -> List[sqlite3.Row]:
+        return self.conn.execute("SELECT * FROM record_names ORDER BY game, score_text").fetchall()
+
     def setting(self, key: str) -> Optional[str]:
         row = self.conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
         return row[0] if row else None
@@ -228,6 +299,23 @@ class Database:
     def clear_unreadable(self, game: str) -> None:
         with self.conn:
             self.conn.execute("DELETE FROM unreadable WHERE game = ?", (game,))
+
+    def set_record_name(self, game: str, score_text: str, initials: str, observation_id: Optional[int],
+                        now: str, origin: str) -> None:
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO record_names (game, score_text, initials, observation_id, named_utc, origin) "
+                "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(game, score_text) DO UPDATE SET "
+                "initials = excluded.initials, observation_id = excluded.observation_id, "
+                "named_utc = excluded.named_utc, origin = excluded.origin",
+                (game, score_text, initials, observation_id, now, origin),
+            )
+
+    def delete_record_name(self, game: str, score_text: str) -> bool:
+        with self.conn:
+            cursor = self.conn.execute(
+                "DELETE FROM record_names WHERE game = ? AND score_text = ?", (game, score_text))
+        return cursor.rowcount > 0
 
 
     def touch_source(self, game: str, file_name: str, now: str, error: Optional[str]) -> None:

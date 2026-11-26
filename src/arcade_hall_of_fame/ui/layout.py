@@ -40,7 +40,7 @@ def layout(screen: Screen, width: int, height: int, footer_left: str = "", foote
     x0 = (width - content_w) // 2
     y0 = (height - GRID_LINES * line) // 2
     ops: List[Op] = [("rect", 0, 0, width, height, BG)]
-    if scanlines:
+    if scanlines and SCANLINE != BG:
         step = max(3, 3 * s)
         for y in range(0, height, step):
             ops.append(("rect", 0, y, width, max(1, s // 2), SCANLINE))

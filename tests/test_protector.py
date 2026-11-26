@@ -86,16 +86,34 @@ class ProtectorTest(HistoryTestCase):
 
     def test_lista_de_records_sin_leer(self):
         self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
-        self.assertIn("lista de récords sin leer actualizada", self.run_protector())
-        self.assertIn("No hay récords sin leer", (self.out / PENDING_FILE).read_text(encoding="utf-8"))
+        self.assertIn("lista de récords sin leer y sin nombre actualizada", self.run_protector())
+        text = (self.out / PENDING_FILE).read_text(encoding="utf-8")
+        self.assertIn("No hay récords sin leer", text)
+        self.assertIn("No hay récords sin nombre", text)
         self.write("sinlectura", b"\x01\x02\x03")
-        self.assertIn("lista de récords sin leer actualizada", self.run_protector())
+        self.write("solotop", bytes([0x14, 0x00]))
+        self.assertIn("lista de récords sin leer y sin nombre actualizada", self.run_protector())
         text = (self.out / PENDING_FILE).read_text(encoding="utf-8")
         self.assertIn("sinlectura", text)
         self.assertIn("sin definición", text)
+        self.assertIn("Récords sin nombre: 1", text)
+        self.assertIn("solotop  1400", text)
         self.assertNotIn("demo ", text)
+        self.assertNotIn("hof-004-juego-solotop.png", self.pngs())  # sin nombre: no se muestra
         self.assertNotIn("lista de récords", self.run_protector())  # sin cambios, no se reescribe
         self.assertNotIn(PENDING_FILE, self.pngs())
+
+    def test_nombrar_regenera_las_imagenes(self):
+        from arcade_hall_of_fame.naming import assign_name
+
+        self.write("demo", demo_file([(900, "XY"), (500, "AA"), (400, "BB")]))
+        self.write("solotop", bytes([0x14, 0x00]))
+        self.run_protector()
+        self.assertEqual(len(self.pngs()), 3)
+        assign_name(self.db, "solotop", "NC", "2026-11-25T12:00:00+00:00")
+        self.assertIn("imágenes nuevas", self.run_protector())
+        self.assertIn("hof-004-juego-solotop.png", self.pngs())
+        self.assertIn("No hay récords sin nombre", (self.out / PENDING_FILE).read_text(encoding="utf-8"))
 
     def test_nombres_de_archivo(self):
         from arcade_hall_of_fame.ui.screens import Screen
