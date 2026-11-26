@@ -369,7 +369,7 @@ def _tile(card: GameCard, media) -> Tile:
 
 
 def mosaic_screen(number: int, total: int, cards: Sequence[GameCard], media=None) -> Screen:
-    return Screen(f"mosaico:{number}", "MÁS RÉCORDS", f"{number} / {total}", (), [], [], "",
+    return Screen(f"mosaico:{number}", "OTROS RÉCORDS", f"{number} / {total}", (), [], [], "",
                   tiles=[_tile(c, media) for c in cards])
 
 

@@ -338,7 +338,7 @@ class RotationScreensTest(HistoryTestCase):
         self.assertEqual([k for k in keys if k.startswith("mosaico:")], ["mosaico:1", "mosaico:2"])
         self.assertEqual(screens.games, 10)
         mosaic = screens[-1]
-        self.assertEqual((mosaic.title, mosaic.subtitle), ("MÁS RÉCORDS", "2 / 3"))
+        self.assertEqual((mosaic.title, mosaic.subtitle), ("OTROS RÉCORDS", "2 / 3"))
         tile = mosaic.tiles[0]
         self.assertEqual(tile.holder[1], sc.ORO)
         self.assertEqual(tile.score, ("900", sc.PUNTOS))
@@ -418,7 +418,7 @@ class ImageLayoutTest(unittest.TestCase):
     def test_mosaico_3_por_2(self):
         tiles = [sc.Tile(f"g{i}", f"JUEGO NUMERO {i}", self.marquee if i % 2 else None, ("TINCHOVA", sc.ORO),
                          ("123456", sc.PUNTOS)) for i in range(6)]
-        screen = Screen("mosaico:1", "MÁS RÉCORDS", "1 / 3", (), [], tiles=tiles, status="20 JUEGOS")
+        screen = Screen("mosaico:1", "OTROS RÉCORDS", "1 / 3", (), [], tiles=tiles, status="20 JUEGOS")
         for size in ((1920, 1080), (1280, 720), (640, 360)):
             ops = layout(screen, *size, "PIE", "1/9")
             self.assertEqual([op[1] for op in ops if op[0] == "row"], list(range(6)))
@@ -426,7 +426,7 @@ class ImageLayoutTest(unittest.TestCase):
             texts = [op for op in ops if op[0] == "text"]
             self.assertEqual(len([op for op in texts if op[3] == "TINCHOVA" and op[4] == sc.ORO]), 6)
             self.assertEqual(len([op for op in texts if op[3] == "123456" and op[4] == sc.PUNTOS]), 6)
-            self.assertIn("MAS RECORDS", [op[3] for op in texts])
+            self.assertIn("OTROS RECORDS", [op[3] for op in texts])
             self.assertIn("1 / 3", [op[3] for op in texts])
             for op in texts:
                 self.assertLessEqual(op[1] + len(op[3]) * 6 * op[5], size[0], (size, op[3]))
