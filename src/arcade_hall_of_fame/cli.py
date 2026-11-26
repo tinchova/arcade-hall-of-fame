@@ -284,7 +284,8 @@ def cmd_ranking(args, db: Database) -> int:
     if without:
         print("\nJuegos sin primer puesto atribuible:")
         for g in without:
-            print(f"  {g.game} ({g.top_score}): {g.reason}")
+            score = f" ({g.top_score})" if g.top_score is not None else ""
+            print(f"  {g.game}{score}: {g.reason}")
     return 0
 
 
