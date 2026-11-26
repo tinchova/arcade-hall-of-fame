@@ -1,8 +1,12 @@
 """Página web local para el celular: alias de jugadores y nombres de récords.
 
 Solo biblioteca estándar. A la izquierda (en el celular, un selector arriba),
-**GLOBAL** y debajo los juegos que tienen récords de jugadores:
+**INICIO**, **GLOBAL** y debajo los juegos que tienen récords de jugadores:
 
+* **INICIO** (la página principal): lo mismo que muestra el protector, armado
+  con las mismas funciones: arriba de todo, si hay, los **récords sin nombre**
+  (la misma regla que la pantalla del QR, ``unnamed_records``), cada uno con un
+  enlace a su fila; después el **TOP GLOBAL** y los **ÚLTIMOS RÉCORDS**.
 * **GLOBAL**: alias de iniciales que valen para todos los juegos
   (``TCH`` -> ``TINCHOVA``, hasta 12 caracteres): agregar, cambiar y borrar. Se
   guardan en la base (``player_aliases``); los de ``jugadores.json`` se
@@ -67,7 +71,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 from .models import HighScoreError
 from .naming import (MAX_INITIALS, NamingError, assign_name, clean_initials, keeps_only_top, player_rows,
-                     previous_records, previous_rows, remove_name)
+                     previous_records, previous_rows, remove_name, unnamed_records)
 from .players import (MAX_ALIAS, MAX_ALIAS_INITIALS, AliasError, Players, check_printable, clean_alias_initials,
                       clean_alias_name)
 from .scanner import utc_now
@@ -76,6 +80,7 @@ from .storage import EGG_DEVICES, Database
 DEFAULT_PORT = 47474
 MAX_BODY = 2048
 ORIGIN = "celular"
+HOME = "inicio"
 GLOBAL = "global"
 UNREADABLE = "sin-leer"
 COOKIE = "hof_visita"
@@ -228,6 +233,7 @@ main{flex:1;min-width:0}
 h2{color:#3de8ff;font-size:24px;border-bottom:3px solid #3de8ff;padding-bottom:4px;margin:0 0 6px}
 .sub{color:#a78bfa;font-size:15px;margin:0 0 10px}
 .aviso{background:#3a2a00;border:1px solid #ffb300;color:#ffe082;padding:10px 12px;border-radius:6px;font-size:15px;margin:0 0 12px;text-transform:none;letter-spacing:0}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .ayuda{color:#9e9e9e;font-size:14px;margin:0 0 12px;text-transform:none;letter-spacing:0}
 .fila{border-bottom:2px solid #2a1257;padding:10px 0}
 .pos{color:#9e9e9e;display:inline-block;min-width:2.4em}
@@ -251,11 +257,31 @@ button.sec{background:#000;color:#f43f5e}
 .qr .dir,.tailscale .dir{color:#3de8ff;word-break:break-all;text-transform:none;letter-spacing:0}
 .tailscale{margin-top:12px;border:3px solid #4c1d95;padding:12px}
 footer{color:#787878;font-size:13px;padding:0 16px 20px;text-align:center}
+nav a.inicio{color:#facc15;border-bottom:2px solid #2a1257}
+.faltan{border:3px solid #facc15;background:#1f1a00;padding:10px 12px;margin:0 0 22px}
+.faltan h2{color:#facc15;border-color:#facc15}
+.faltan .item{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:8px 0;border-bottom:2px solid #3a3000}
+.faltan .item:last-child{border-bottom:0}
+.faltan .juego{color:#3de8ff;flex:1 1 160px}
+.faltan .fecha{color:#787878;font-size:14px}
+.faltan a.poner{color:#000;background:#facc15;padding:6px 12px;text-decoration:none;font-size:16px}
+.seccion{margin:0 0 24px}
+.tabla{overflow-x:auto}
+.tabla table{border-collapse:collapse;width:100%}
+.tabla th{color:#3de8ff;font-size:14px;text-align:left;border-bottom:3px solid #4c1d95;padding:4px 8px}
+.tabla td{padding:5px 8px;border-bottom:1px solid #1a0b33;vertical-align:top}
+.tabla .der{text-align:right;white-space:nowrap}
+.tabla .nw{white-space:nowrap}
+.fila{scroll-margin-top:12px}
+.fila:target{background:#1f1a00;outline:3px solid #facc15;outline-offset:2px}
 @media (max-width:720px){
   .wrap{display:block;padding:12px}
   nav{display:none}
   .selector{display:flex;margin:0 0 16px}
   h1{font-size:24px}
+  .tabla table{font-size:14px;letter-spacing:0}
+  .tabla th{font-size:12px}
+  .tabla td,.tabla th{padding:4px 5px}
 }
 #titulo{cursor:default;-webkit-user-select:none;user-select:none;touch-action:manipulation;
   -webkit-tap-highlight-color:transparent}
@@ -288,7 +314,7 @@ footer{color:#787878;font-size:13px;padding:0 16px 20px;text-align:center}
 # 'unsafe-inline'. Dibuja todo en un solo <canvas>; el tiempo se guarda con POST /secreto.
 EGG_JS = """(function(){
 var h=document.getElementById('titulo');if(!h)return;
-var TOTAL=20,EN_PANTALLA=4,CORTE=180000;
+var TOTAL=20,EN_PANTALLA=5,CORTE=180000;
 var taps=[],box=null,raf=0,medir=null;
 var LENTE='M5 4L112 7Q120 8 119 16L117 30Q114 44 100 44L88 44Q77 44 73 35Q69 27 62 27Q55 27 51 35Q47 44 34 43L22 42Q10 41 8 30L5 17Q3 9 5 4Z';
 h.addEventListener('click',function(){
@@ -318,7 +344,7 @@ function abrir(){
   var lentes=[],chispas=[],atrapados=0,toques=0,lanzados=0,t0=performance.now(),prev=t0,ult=-1e9,fin=false;
   function lanzar(l){
     l=l||{};l.w=base*(0.8+Math.random()*0.45);l.h=l.w*64/120;
-    l.x=l.w/2+Math.random()*Math.max(1,W-l.w);l.y=-l.w/2;l.v=H*(0.12+Math.random()*0.1);
+    l.x=l.w/2+Math.random()*Math.max(1,W-l.w);l.y=-l.w/2;l.v=H*(0.15+Math.random()*0.12);
     l.a=Math.random()*6.283;l.g=(Math.random()-0.5)*0.7;return l;
   }
   cv.addEventListener('pointerdown',function(e){
@@ -335,7 +361,7 @@ function abrir(){
   });
   function pop(l){
     for(var i=0;i<10;i++){var a=i/10*6.283+Math.random()*0.3;
-      chispas.push({x:l.x,y:l.y,vx:Math.cos(a)*120,vy:Math.sin(a)*120,t:0,c:i%4?'#8b0016':'#fff'});}
+      chispas.push({x:l.x,y:l.y,vx:Math.cos(a)*120,vy:Math.sin(a)*120,t:0,c:i%4?'#f43f5e':'#fff'});}
   }
   function dibujar(now,dt){
     g.setTransform(1,0,0,1,0,0);g.fillStyle='#000';g.fillRect(0,0,cv.width,cv.height);
@@ -462,10 +488,10 @@ def _hidden(**fields) -> str:
     return "".join(f'<input type="hidden" name="{k}" value="{_e(v)}">' for k, v in fields.items())
 
 
-def render_page(db: Database, names: Dict[str, str], file_players: Players, view: str = GLOBAL,
+def render_page(db: Database, names: Dict[str, str], file_players: Players, view: str = HOME,
                 message: Optional[Tuple[str, str]] = None, qr_svg: str = "", addresses: Sequence[str] = (),
                 since: Optional[str] = None, tailscale: Sequence[str] = ()) -> str:
-    """Página completa. ``view`` es ``GLOBAL`` (alias), ``UNREADABLE`` o el juego elegido.
+    """Página completa. ``view`` es ``HOME`` (inicio), ``GLOBAL`` (alias), ``UNREADABLE`` o el juego.
 
     ``since``: lo detectado después se marca como NUEVO. ``tailscale``: direcciones
     por Tailscale, que se muestran en texto debajo del QR (el QR es la de la red local).
@@ -480,8 +506,8 @@ def render_page(db: Database, names: Dict[str, str], file_players: Players, view
     for r in rows:
         games.setdefault(r.game, []).append(r)
     order = sorted(games, key=lambda g: (names.get(g, g).lower(), g))
-    if view not in games and view != UNREADABLE:
-        view = GLOBAL
+    if view not in games and view not in (UNREADABLE, GLOBAL):
+        view = HOME
 
     out = ['<!doctype html><html lang="es"><head><meta charset="utf-8">',
            '<meta name="viewport" content="width=device-width,initial-scale=1">',
@@ -490,8 +516,10 @@ def render_page(db: Database, names: Dict[str, str], file_players: Players, view
 
     # Lista de la izquierda (en el celular, un selector arriba). Los juegos con
     # filas sin nombre llevan la cantidad ("2?").
-    links = [f'<a href="/" class="global{" on" if view == GLOBAL else ""}">Global</a>']
-    options = [f'<option value="{GLOBAL}"{" selected" if view == GLOBAL else ""}>Global: alias</option>']
+    links = [f'<a href="/" class="inicio{" on" if view == HOME else ""}">Inicio</a>',
+             f'<a href="/?ver={GLOBAL}" class="global{" on" if view == GLOBAL else ""}">Global</a>']
+    options = [f'<option value="{HOME}"{" selected" if view == HOME else ""}>Inicio</option>',
+               f'<option value="{GLOBAL}"{" selected" if view == GLOBAL else ""}>Global: alias</option>']
     if unreadable:
         on = " on" if view == UNREADABLE else ""
         links.append(f'<a href="/?ver={UNREADABLE}" class="sinleer{on}">Sin leer ({len(unreadable)})</a>')
@@ -512,7 +540,9 @@ def render_page(db: Database, names: Dict[str, str], file_players: Players, view
     if message:
         kind, text = message
         out.append(f'<p class="msg {_e(kind)}" role="status">{_e(text)}</p>')
-    if view == GLOBAL:
+    if view == HOME:
+        out.append(_home_html(db, names, players, rows))
+    elif view == GLOBAL:
         out.append(_global_html(db_aliases, file_players, players, rows, qr_svg, addresses, tailscale))
     elif view == UNREADABLE:
         out.append(_unreadable_html(unreadable, names))
@@ -522,6 +552,66 @@ def render_page(db: Database, names: Dict[str, str], file_players: Players, view
                               view in new_games, keeps_only_top(db, view)))
     out.append("</main></div><footer>Solo funciona dentro de la red de casa (o por Tailscale).</footer>"
                f"<script>{EGG_JS}</script></body></html>")
+    return "".join(out)
+
+
+class _Names:
+    """Nombres de los juegos para las funciones de las pantallas (``ui.screens``)."""
+
+    def __init__(self, names: Dict[str, str]):
+        self.names = names
+
+    def name(self, game: str) -> str:
+        return self.names.get(game, game)
+
+
+_COLOR = re.compile(r"#[0-9a-fA-F]{6}")
+
+
+def _screen_table(screens, caption: str) -> str:
+    """Tabla HTML con las filas y los colores de una pantalla del protector (o de
+    sus páginas, una debajo de la otra): lo mismo, en el mismo orden."""
+    first = screens[0]
+
+    def attrs(column, color: str = "") -> str:
+        css = "der" if column.align == "right" else ("nw" if column.width <= 5 else "")
+        return (f' class="{css}"' if css else "") + (f' style="color:{color}"' if _COLOR.fullmatch(color) else "")
+
+    head = "".join(f"<th{attrs(c)}>{_e(c.label)}</th>" for c in first.columns)
+    body = ["<tr>" + "".join(f"<td{attrs(c, color)}>{_e(text)}</td>" for (text, color), c in zip(row, first.columns))
+            + "</tr>" for screen in screens for row in screen.rows]
+    notes = "".join(f'<p class="ayuda">{_e(text)}</p>' for text, _ in first.notes)
+    if not body:
+        return f'<p class="nada">{_e(first.empty_message)}</p>{notes}'
+    return (f'<div class="tabla"><table><caption class="sr">{_e(caption)}</caption><thead><tr>{head}</tr></thead>'
+            f'<tbody>{"".join(body)}</tbody></table></div>{notes}')
+
+
+def _home_html(db: Database, names: Dict[str, str], players: Players, rows) -> str:
+    """Inicio: récords sin nombre (si hay), TOP GLOBAL y ÚLTIMOS RÉCORDS, como el protector."""
+    from .ui.screens import ranking_screens, records_screen
+
+    out = []
+    missing = unnamed_records(db)  # la misma regla que la pantalla del QR del protector
+    if missing:
+        title = "Récord sin nombre" if len(missing) == 1 else f"Récords sin nombre ({len(missing)})"
+        out.append(f'<section class="faltan" aria-label="Récords sin nombre"><h2>{title}</h2>'
+                   '<p class="ayuda">No tienen iniciales: no se muestran ni suman hasta que alguien les pone '
+                   "nombre.</p>")
+        for r in missing:
+            position = next((x.position for x in rows if x.game == r.game and x.score_text == r.score_text
+                             and not x.name), None)
+            target = "/?" + urlencode({"ver": r.game}) + (f"#fila-{position}" if position else "")
+            out.append(f'<div class="item"><span class="juego">{_e(names.get(r.game, r.game))}</span>'
+                       f'<span class="pts">{_e(r.score_text)}</span>'
+                       f'<span class="fecha">{_e(_local(r.detected_utc))}</span>'
+                       f'<a class="poner" href="{_e(target)}">Poner nombre</a></div>')
+        out.append("</section>")
+    screen_names = _Names(names)
+    out.append('<section class="seccion"><h2>Top global</h2><p class="sub">Primeros puestos por jugador</p>'
+               + _screen_table(ranking_screens(db, players, screen_names), "Top global") + "</section>")
+    out.append('<section class="seccion"><h2>Últimos récords</h2><p class="sub">Récords detectados</p>'
+               + _screen_table([records_screen(db, players, screen_names)], "Últimos récords") + "</section>")
     return "".join(out)
 
 
@@ -613,7 +703,8 @@ def _game_html(game: str, title: str, rows, players: Players, fresh: Set[Tuple[s
         remove = (f'<form method="post" action="/quitar">{fields}'
                   '<button type="submit" class="sec">Quitar nombre</button></form>') if r.assigned else ""
         is_new = (r.score_text, r.original or "") in fresh
-        out.append(f'<div class="fila"><div class="pts"><span class="pos">{r.position}.</span>{_e(r.score_text)} '
+        anchor = "" if r.previous else f' id="fila-{r.position}"'
+        out.append(f'<div class="fila"{anchor}><div class="pts"><span class="pos">{r.position}.</span>{_e(r.score_text)} '
                    f'<span class="{"nom" if r.name else "nada"}">{_e(shown)}</span>{tag if is_new else ""}</div>'
                    + (f'<div class="det">{_e("; ".join(details))}</div>' if details else "")
                    + f'<form method="post" action="/nombrar">{fields}'
@@ -669,7 +760,7 @@ class Handler(BaseHTTPRequestHandler):
             return False
         return True
 
-    def _page(self, db: Database, status: int, message: Optional[Tuple[str, str]], view: str = GLOBAL) -> None:
+    def _page(self, db: Database, status: int, message: Optional[Tuple[str, str]], view: str = HOME) -> None:
         since, cookie = visit_window(self.headers.get("Cookie"), utc_now())
         games = sorted({s["game"] for s in db.sources()} | {r["game"] for r in db.unreadable()})
         self._send(status, render_page(db, self.config.names(db, games), self.config.file_players(), view, message,
@@ -685,7 +776,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         query = parse_qs(parts.query, max_num_fields=4)
         done = (query.get("hecho") or [""])[0]
-        view = (query.get("ver") or [GLOBAL])[0][:64]
+        view = (query.get("ver") or [HOME])[0][:64]
         db = Database(self.config.db_path)
         try:
             self._page(db, 200, ("ok", DONE[done]) if done in DONE else None, view)

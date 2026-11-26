@@ -223,7 +223,7 @@ class WebTest(unittest.TestCase):
         return db
 
     def test_pagina_global_y_juego(self):
-        response, page = self.request("GET", "/")
+        response, page = self.request("GET", "/?ver=global")
         self.assertEqual(response.status, 200)
         self.assertIn("default-src 'none'", response.getheader("Content-Security-Policy"))
         self.assertIn("GALAGA TITULO", page)
@@ -242,6 +242,46 @@ class WebTest(unittest.TestCase):
         self.assertIn("las que no lo superan no quedan guardadas", page)
         self.assertNotIn('name="historial"', page)  # todavía no hay récords anteriores
 
+    def test_inicio_sin_nombre_top_global_y_ultimos_records(self):
+        from arcade_hall_of_fame.naming import unnamed_records
+        from arcade_hall_of_fame.ui.screens import ranking_screens, records_screen
+
+        response, page = self.request("GET", "/")
+        self.assertEqual(response.status, 200)
+        # Lista y selector: INICIO primero, después GLOBAL.
+        self.assertIn('<a href="/" class="inicio on">Inicio</a><a href="/?ver=global" class="global">', page)
+        self.assertIn('<option value="inicio" selected>Inicio</option><option value="global">', page)
+        self.assertNotIn("<svg>qr</svg>", page)  # el QR y los alias siguen en GLOBAL
+        # Récords sin nombre: los mismos que la pantalla del QR, arriba de todo.
+        db = self.db()
+        missing = unnamed_records(db)
+        self.assertEqual([(r.game, r.score_text) for r in missing], [("pacman", "1400")])
+        self.assertLess(page.index('class="faltan"'), page.index("Top global"))
+        self.assertLess(page.index("Top global"), page.index("Últimos récords"))
+        self.assertIn("Récord sin nombre</h2>", page)
+        self.assertIn('<span class="juego">PACMAN TITULO</span><span class="pts">1400</span>', page)
+        self.assertIn('href="/?ver=pacman#fila-1">Poner nombre</a>', page)
+        # El enlace lleva a una fila que existe en la página del juego.
+        _, game_page = self.request("GET", "/?ver=pacman")
+        self.assertIn('<div class="fila" id="fila-1">', game_page)
+        # TOP GLOBAL y ÚLTIMOS RÉCORDS: las filas de las mismas funciones que el protector.
+        names = web._Names({"galaga": "GALAGA TITULO", "pacman": "PACMAN TITULO"})
+        players = load_players(None, db)
+        for screen in ranking_screens(db, players, names) + [records_screen(db, players, names)]:
+            self.assertTrue(screen.rows)
+            for row in screen.rows:
+                for text, color in row:
+                    self.assertIn(f'style="color:{color}">{web._e(text)}</td>', page)
+        self.assertIn('style="color:#facc15">1.</td>', page)  # podio: el 1º en oro
+        self.assertIn("TCH", page)
+        # Con nombre puesto, el recuadro desaparece (y el ranking lo cuenta).
+        assign_name(db, "pacman", "ZZT", NOW)
+        _, page = self.request("GET", "/")
+        self.assertNotIn('class="faltan"', page)
+        self.assertIn("ZZT", page)
+        # Un ver= desconocido vuelve al inicio.
+        _, page = self.request("GET", "/?ver=noexiste")
+        self.assertIn('class="inicio on"', page)
 
     def test_easter_egg_y_csp(self):
         import base64
