@@ -180,8 +180,9 @@ class ProtectorTest(HistoryTestCase):
 
 
 class LaunchAgentTest(unittest.TestCase):
-    def render(self) -> dict:
+    def render(self, web: str = "") -> dict:
         values = {
+            "@WEB@": web,
             "@PYTHON@": "/Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13",
             "@REPO@": "/Users/ejemplo/arcade-hall-of-fame",
             "@PARTIDAS@": "/Users/ejemplo/Documents/RetroArch/saves/FinalBurn Neo/fbneo",
@@ -205,10 +206,27 @@ class LaunchAgentTest(unittest.TestCase):
         self.assertEqual(plist["ProgramArguments"][1:4], ["-m", "arcade_hall_of_fame", "protector"])
         self.assertEqual(plist["EnvironmentVariables"]["PYTHONPATH"], "/Users/ejemplo/arcade-hall-of-fame/src")
 
+    def test_plantilla_con_el_qr_de_la_pagina(self):
+        plist = self.render("<string>--web-puerto</string><string>47474</string>")
+        self.assertEqual(plist["ProgramArguments"][-2:], ["--web-puerto", "47474"])
+
+    def test_plantilla_de_la_pagina_web(self):
+        text = (TEMPLATE.parent / "com.arcade-hall-of-fame.web.plist.in").read_text(encoding="utf-8")
+        for key, value in {"@PYTHON@": "/usr/bin/python3", "@REPO@": "/Users/ejemplo/r", "@PUERTO@": "47474",
+                           "@GAMELIST@": "/Users/ejemplo/g.xml", "@LOG@": "/Users/ejemplo/web.log"}.items():
+            text = text.replace(key, value)
+        self.assertNotIn("@", text.split("-->", 1)[1])
+        plist = plistlib.loads(text.encode("utf-8"))
+        self.assertEqual(plist["Label"], "com.arcade-hall-of-fame.web")
+        self.assertEqual(plist["ProgramArguments"][3:6], ["web", "--puerto", "47474"])
+        self.assertTrue(plist["KeepAlive"])
+
     @unittest.skipUnless(shutil.which("sh"), "sin sh")
     def test_script_de_instalacion_es_sintacticamente_valido(self):
-        result = subprocess.run(["sh", "-n", str(INSTALLER)], capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
+        for script in (INSTALLER, INSTALLER.parent / "instalar_web.sh", INSTALLER.parent / "instalar_esde.sh",
+                       INSTALLER.parents[2] / "hof"):
+            result = subprocess.run(["sh", "-n", str(script)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
 
 
 if __name__ == "__main__":
