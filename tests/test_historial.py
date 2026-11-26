@@ -303,7 +303,7 @@ class ScanTest(HistoryTestCase):
 
     def test_motivos_de_no_lectura(self):
         (self.db_dir / "pendiente.xml").write_bytes(xml("""
-  <structure file=".hi"><elt size="2" type="int" id="SCORE" base="256"/></structure>
+  <structure file=".hi"><elt size="2" type="int" id="SCORE" base="7"/></structure>
   <output><table><column id="SCORE"/></table></output>"""))
         (self.db_dir / "otroarchivo.xml").write_bytes(xml("""
   <structure file="nvram"><elt size="2" type="int" id="SCORE"/></structure>

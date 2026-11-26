@@ -1,6 +1,6 @@
 # Cobertura sobre la colección de FBNeo de la iMac
 
-Medición del 2026-11-25. Se cruzaron tres fuentes:
+Medición del 2026-11-25, repetida el 2026-11-26 después de ampliar el intérprete. Se cruzaron tres fuentes:
 
 - la lista de ROMs de la iMac: 586 juegos, todos de FinalBurn Neo (fbneo, neogeo, cps1/2/3 y toaplan_cave_stg);
 - el `hiscore.dat` que usa FBNeo en la iMac, que define qué juegos guardan récords en un `.hi`;
@@ -21,37 +21,42 @@ PYTHONPATH=src python -m arcade_hall_of_fame.hi2txt.conformance local/hi2txt-xml
 | --- | --- |
 | Total de la colección | 586 |
 | **(a) FBNeo guarda récords** (tienen entrada en `hiscore.dat`) | **437** |
-| **(b) El intérprete puede leerlos hoy** | **244** (56 % de los que guardan récords) |
-| **(c) Guardan récords pero no se pueden leer** | **193** |
+| **(b) El intérprete puede leerlos hoy** | **256** (59 % de los que guardan récords; 244 el 2026-11-25) |
+| **(c) Guardan récords pero no se pueden leer** | **181** |
 | FBNeo no guarda récords en `.hi` (sin entrada en `hiscore.dat`) | 149 |
 
-"Se puede leer" significa que la definición carga sin operaciones pendientes y que su tamaño y sus regiones de memoria coinciden con lo que guarda FBNeo. Solo Galaga, Bubble Bobble y Pac-Man están confirmados con un archivo real; para el resto, la confirmación llegará con el primer `.hi` de cada juego.
+"Se puede leer" significa que la definición carga sin operaciones pendientes y que su tamaño y sus regiones de memoria coinciden con lo que guarda FBNeo. Galaga, Bubble Bobble, Pac-Man y Out Run están confirmados con un archivo real; para el resto, la confirmación llegará con el primer `.hi` de cada juego.
 
 ## Motivos de (c)
 
 | Motivo | Juegos | Qué haría falta |
 | --- | --- | --- |
 | hi2txt-xml no tiene definición para el juego | 172 | Escribir definiciones nuevas (idealmente, aportarlas a hi2txt-xml) o aceptar que esos juegos no entren al ranking |
-| La definición usa operaciones que el intérprete no implementa | 13 | Ampliar el intérprete (ver abajo) |
-| La definición describe otro archivo (`nvram`, `saveram`...), no el `.hi` que guarda FBNeo | 4 | Una definición para el `.hi` de FBNeo |
+| La definición describe otro archivo (`nvram`, `saveram`, `eeprom`...), no el `.hi` que guarda FBNeo | 5 | Una definición para el `.hi` de FBNeo |
 | El tamaño del `.hi` de FBNeo no coincide con la definición | 2 | Revisar si FBNeo guarda más datos que MAME y adaptar la definición |
 | Mismo tamaño, pero otras regiones de memoria | 1 | Comparar con una muestra real antes de usarla |
 | La definición tiene un error propio | 1 | Corregir la definición |
 
-Operaciones pendientes en esos 13 juegos:
+Ya no queda ningún juego de la colección frenado por operaciones del intérprete. El 2026-11-25 eran 13; el 2026-11-26 se implementaron las seis operaciones que usaban, siguiendo la documentación oficial del formato y comprobándolas con los casos de prueba de hi2txt-xml:
 
-| Operación | Juegos |
-| --- | --- |
-| Charsets predefinidos `CS_*` (`CS_NUMBER`) | 5 |
-| `format@formatter` (formato estilo Java, p. ej. `%.2f`) | 3 |
-| `char@src` en hexadecimal sin prefijo `0x` | 2 |
-| `base="256"` | 1 |
-| Operación `shift` (formatos `>N`) | 1 |
-| `line-ignore` sin `:valor` | 1 |
+| Operación | Juegos | Ejemplo |
+| --- | --- | --- |
+| Charset predefinido `CS_NUMBER[desplazamiento,delta]` | 5 (aerofgt, armwar, dimahoo, exedexes, gnbarich) | cifras 0 a 9 desde el código ASCII 0x30, más el desplazamiento; el delta separa cifras consecutivas |
+| `format@formatter` (formato estilo Java, de un solo valor) | 3 (goldnaxe, mrdo, outrun) | `%02d`, `%.1f` (redondea la mitad hacia arriba, como Java) |
+| `char@src` hexadecimal sin `0x` | 2 (futaribl, solrwarr) | `src="2D"` |
+| `base="256"`: un byte por cifra decimal | 1 (galaga88) | `00 02 07 00 06 03` → 27063 |
+| Formato implícito `>N`: desplazamiento de N bits a la derecha | 1 (tgm2p) | `>2;%4` |
+| `line-ignore` sin `:valor`: omite las filas con esa columna vacía | 1 (tmnt2pj) | `line-ignore="NAME"` |
 
-Con las tres primeras se recuperarían hasta 10 juegos. El mayor obstáculo son los 172 juegos sin definición, no el intérprete.
+De esos 13, 12 se leen ahora. tgm2p no: con las operaciones resueltas se ve que su definición describe la `eeprom`, no el `.hi`, y pasa a la fila "otro archivo". En toda la biblioteca de hi2txt-xml quedan 14 juegos (3 definiciones base) con operaciones pendientes, ninguno en esta colección: columnas dentro de `divide` y un `case` con `operator="="`.
+
+El mayor obstáculo son los 172 juegos sin definición, no el intérprete.
 
 Los 149 juegos sin entrada en `hiscore.dat` incluyen muchos de Neo Geo, que guardan sus récords en otro tipo de archivo, o no los guardan. Habría que investigarlos aparte.
+
+## Out Run (muestra real, 2026-11-26)
+
+`outrun.hi` (280 bytes) se copió de la iMac sin modificarla. Guarda 20 puestos con puntuación, iniciales, tiempo y ruta; la definición oculta los puestos sin iniciales. El archivo tiene **solo la tabla de fábrica**: siete puestos con iniciales (5.000.000 YU., 4.800.000 BIN, 4.600.000 KAG, 4.400.000 MIY, 4.200.000 MAT, 4.000.000 IKA, 3.800.000 A.O, todos con tiempo 0'00''00) y trece sin iniciales, de 3.600.000 a 1.000.000. No hay ninguna entrada de una partida: la de Nico no llegó a la tabla (seguramente con menos de 1.000.000, el puesto 20) o FBNeo guardó la tabla sin cambios. El caso de prueba de hi2txt-xml para Out Run, que sí incluye partidas con tiempo, coincide exactamente.
 
 ## Pac-Man (nueva muestra real)
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..models import FormatError, IncompatibleFile
-from .definition import Definition, Elt, Loop, Structure
+from .definition import Definition, Elt, Loop, Structure, parse_predefined_charset
 from .formats import Context, Value, is_true, render
 from .output import Result, build_result
 
@@ -118,7 +118,15 @@ def _to_int(elt: Elt, h: str) -> int:
     if not h:
         raise FormatError(f"{elt.id}: campo numérico vacío")
     value = int(h, 16)
-    if elt.attrs.get("base") == "16":
+    if elt.attrs.get("base") == "256":
+        # Cada byte es una cifra decimal: 00 02 07 00 06 03 -> 270630.
+        value = 0
+        for i in range(0, len(h), 2):
+            digit = int(h[i:i + 2], 16)
+            if digit > 9:
+                raise FormatError(f"{elt.id}: byte 0x{digit:02X} no es una cifra (base 256)")
+            value = value * 10 + digit
+    elif elt.attrs.get("base") == "16":
         digits = f"{value:X}"
         if not digits.isdigit():
             raise FormatError(f"{elt.id}: 0x{digits} no es un número decimal codificado (BCD)")
@@ -146,7 +154,10 @@ def _to_text(elt: Elt, h: str, definition: Definition) -> str:
             codes.extend(reversed(digits))
     else:
         codes = units
-    charsets = [definition.charsets[n] for n in a.get("charset", "").split(";") if n]
+    charsets = [
+        definition.charsets[n] if not n.startswith("CS_") else parse_predefined_charset(n)
+        for n in a.get("charset", "").split(";") if n
+    ]
     step = int(a.get("ascii-step", "1"))
     offset = int(a.get("ascii-offset", "0"))
     out = []

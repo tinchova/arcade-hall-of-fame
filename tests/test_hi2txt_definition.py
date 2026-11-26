@@ -27,14 +27,16 @@ class UnsupportedTest(unittest.TestCase):
         self.assertIn(feature, ctx.exception.features)
 
     def test_base_no_implementada(self):
-        self.assert_unsupported(minimal('<elt size="1" type="int" id="A" base="256"/>'), "elt@base=256")
+        self.assert_unsupported(minimal('<elt size="1" type="int" id="A" base="7"/>'), "elt@base=7")
 
     def test_atributo_desconocido(self):
         self.assert_unsupported(minimal('<elt size="1" type="int" id="A" magic="1"/>'), "elt@magic")
 
     def test_formatter_y_operacion_desconocida(self):
-        extra = '<format id="f" formatter="%.2f"><divide>100</divide></format>'
-        self.assert_unsupported(minimal(extra=extra), "format@formatter")
+        extra = '<format id="f" formatter="%d-%d"><divide>100</divide></format>'
+        self.assert_unsupported(minimal(extra=extra), "format@formatter=%d-%d")
+        extra = '<format id="f" formatter="%tY"/>'
+        self.assert_unsupported(minimal(extra=extra), "format@formatter=%tY")
         extra = '<format id="f"><shift>2</shift></format>'
         self.assert_unsupported(minimal(extra=extra), "format <shift>")
 
@@ -43,14 +45,14 @@ class UnsupportedTest(unittest.TestCase):
           <output><table><column id="A" format="nada"/></table></output>""")
         self.assert_unsupported(data, "format desconocido 'nada'")
 
-    def test_charset_predefinido(self):
+    def test_charset_predefinido_desconocido(self):
         self.assert_unsupported(
-            minimal('<elt size="1" type="text" id="A" charset="CS_NUMBER[-48]"/>'), "charset predefinido CS_*"
+            minimal('<elt size="1" type="text" id="A" charset="CS_LETTER"/>'), "charset predefinido CS_LETTER"
         )
 
     def test_el_mensaje_enumera_las_operaciones(self):
-        with self.assertRaisesRegex(UnsupportedDefinition, "elt@base=256"):
-            parse_definition("demo", minimal('<elt size="1" type="int" id="A" base="256"/>'))
+        with self.assertRaisesRegex(UnsupportedDefinition, "elt@base=7"):
+            parse_definition("demo", minimal('<elt size="1" type="int" id="A" base="7"/>'))
 
 
 class DefinitionErrorTest(unittest.TestCase):

@@ -39,14 +39,14 @@ Medida con `python -m arcade_hall_of_fame.hi2txt.conformance local/hi2txt-xml/<r
 | Medida | Resultado |
 | --- | --- |
 | Juegos con definición en hi2txt-xml | 3102 (780 definiciones base; el resto son alias `sameas`) |
-| Cargan sin operaciones pendientes | 2939 juegos (94,7 %), 743 definiciones base |
-| Con operaciones pendientes | 146 juegos (34 base): `CS_*` 11, `base=256` 9, `formatter` 8, `shift`, columnas en `divide` y casos sueltos |
+| Cargan sin operaciones pendientes | 3071 juegos (99 %), 774 definiciones base |
+| Con operaciones pendientes | 14 juegos (3 base): columnas dentro de `divide` (2) y `case` con `operator="="` (1) |
 | Con errores propios de la definición | 17 juegos (3 base: sin `<structure>` o bucle sin `count`) |
-| Casos de prueba de hi2txt-xml (`src/test`, 803) | 606 salidas idénticas y 15 con la tabla principal idéntica; 8 difieren, 11 dan error, 42 sin soporte, 117 son `nvram` de varios archivos (no aplica a FBNeo) y 4 salidas esperadas ilegibles |
-| `hiscore.dat` de FBNeo instalado (5856 juegos) | 2588 tienen definición; 2467 están soportadas; 2450 son además compatibles en tamaño y regiones de memoria con lo que guarda FBNeo (13 difieren en tamaño o archivo, 4 en regiones) |
-| Colección de la iMac (586 juegos) | 437 guardan récords en FBNeo y 244 se pueden leer hoy; detalle en [COBERTURA_FBNEO.md](COBERTURA_FBNEO.md) |
+| Casos de prueba de hi2txt-xml (`src/test`, 803) | 632 salidas idénticas y 16 con la tabla principal idéntica; 9 difieren, 11 dan error, 7 sin soporte, 124 son `nvram` o `eeprom` de varios archivos (no aplica a FBNeo) y 4 salidas esperadas ilegibles |
+| `hiscore.dat` de FBNeo instalado (5856 juegos) | 2588 tienen definición; 2576 están soportadas; 2556 son además compatibles en tamaño y regiones de memoria con lo que guarda FBNeo (16 difieren en tamaño o archivo, 4 en regiones) |
+| Colección de la iMac (586 juegos) | 437 guardan récords en FBNeo y 256 se pueden leer hoy; detalle en [COBERTURA_FBNEO.md](COBERTURA_FBNEO.md) |
 
-De los 644 casos de prueba aplicables y soportados, 621 (96 %) dan la tabla principal idéntica a la del motor original. Varias diferencias restantes vienen de salidas esperadas generadas con versiones antiguas del motor o de las definiciones (por ejemplo, hexadecimal en minúsculas). Que una definición cargue no garantiza que el juego funcione en FBNeo: hace falta que las regiones de su `hiscore.dat` coincidan y, en lo posible, una muestra real.
+De los 668 casos de prueba aplicables y soportados, 648 (97 %) dan la tabla principal idéntica a la del motor original. Varias diferencias restantes vienen de salidas esperadas generadas con versiones antiguas del motor o de las definiciones (por ejemplo, hexadecimal en minúsculas). Que una definición cargue no garantiza que el juego funcione en FBNeo: hace falta que las regiones de su `hiscore.dat` coincidan y, en lo posible, una muestra real.
 
 Las definiciones de hi2txt-xml se probaron con MAME. Para cada juego de FBNeo, el intérprete elige la estructura por tamaño de archivo y, si se le pasan, por las regiones de `hiscore.dat`. Si no coinciden, informa un error en vez de leer.
 

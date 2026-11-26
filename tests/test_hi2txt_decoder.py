@@ -145,6 +145,40 @@ class StructureFeaturesTest(unittest.TestCase):
         # (1 * 40 + 2) * 40 + 3 = 1683 = 0x0693 -> códigos 1, 2, 3 -> "ABC"
         self.assertEqual(self.table(body, bytes([0x06, 0x93])).rows, (("ABC",),))
 
+    def test_base_256_un_digito_por_byte(self):
+        body = """
+          <structure file=".hi"><check><size>4</size></check>
+            <elt size="4" type="int" id="SCORE" base="256"/>
+          </structure>
+          <output><table><column id="SCORE"/></table></output>"""
+        self.assertEqual(self.table(body, bytes([0, 2, 7, 3])).rows, ((273,),))
+        with self.assertRaisesRegex(FormatError, "base 256"):
+            self.table(body, bytes([0, 2, 0x0A, 3]))
+
+    def test_charset_predefinido_cs_number(self):
+        body = """
+          <structure file=".hi"><check><size>4</size></check>
+            <elt size="4" type="text" id="NAME" charset="CS_NUMBER[{cs}];demo" ascii-offset="65" ascii-step="{step}"/>
+          </structure>
+          <output><table><column id="NAME"/></table></output>
+          <charset id="demo"><char src="FE" dst="."/></charset>"""
+        # Cifras desde el código 1 (0 = A por ascii-offset); FE sin 0x es hexadecimal.
+        self.assertEqual(self.table(body.format(cs="-47", step="1"), bytes([1, 10, 0, 0xFE])).rows, (("09A.",),))
+        # Con delta 1 las cifras van de dos en dos, como las letras con ascii-step=2.
+        self.assertEqual(self.table(body.format(cs="4,1", step="2"), bytes([0x34, 0x46, 2, 0xFE])).rows,
+                         (("09B.",),))
+
+    def test_line_ignore_sin_valor_omite_filas_vacias(self):
+        body = """
+          <structure file=".hi"><check><size>4</size></check>
+            <loop count="3"><elt size="1" type="int" id="SCORE"/></loop>
+            <loop count="1"><elt size="1" type="text" id="NAME"/></loop>
+          </structure>
+          <output><table line-ignore="NAME">
+            <column id="RANK" src="index" format="+1"/><column id="SCORE"/><column id="NAME"/>
+          </table></output>"""
+        self.assertEqual(self.table(body, b"	A").rows, ((1, 9, "A"),))
+
     def test_seleccion_por_regiones(self):
         body = """
           <structure file=".hi"><check><definition>0:1000:2:00:00</definition><size>2</size></check>

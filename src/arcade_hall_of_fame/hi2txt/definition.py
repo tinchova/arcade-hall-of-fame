@@ -23,6 +23,7 @@ from .formats import (
     NamedFormat,
     Operation,
     SubColumn,
+    formatter_problem,
     is_true,
     parse_literal,
     split_refs,
@@ -103,6 +104,26 @@ class Output:
 class Charset:
     mapping: dict[int, str]
     default: str | None
+
+
+_PREDEFINED_CHARSET = re.compile(r"^CS_NUMBER(?:\[(-?\d+)(?:,(-?\d+))?\])?$")
+
+
+def parse_predefined_charset(name: str) -> Charset | None:
+    """Charset predefinido de hi2txt, o ``None`` si no se conoce.
+
+    ``CS_NUMBER`` son las cifras 0 a 9 con sus códigos ASCII (0x30 a 0x39).
+    ``CS_NUMBER[desplazamiento]`` suma el desplazamiento a cada código, y
+    ``CS_NUMBER[desplazamiento,delta]`` además separa cifras consecutivas en
+    ``1 + delta`` códigos: con ``[4,1]``, el 0 es 0x34, el 1 es 0x36...
+    """
+    match = _PREDEFINED_CHARSET.match(name)
+    if not match:
+        return None
+    offset = int(match.group(1) or 0)
+    delta = int(match.group(2) or 0)
+    mapping = {ord("0") + digit + offset + digit * delta: str(digit) for digit in range(10)}
+    return Charset(mapping=mapping, default=None)
 
 
 @dataclass(frozen=True)
@@ -328,7 +349,7 @@ class _Parser:
 
         base = attrs.get("base")
         if base is not None:
-            allowed = {"10", "16"} if elt_type == "int" else {"10", "16", "32", "40"}
+            allowed = {"10", "16", "256"} if elt_type == "int" else {"10", "16", "32", "40"}
             if base not in allowed:
                 bad("base")
         if attrs.get("endianness", "default") not in ("big_endian", "little_endian", "default"):
@@ -364,9 +385,9 @@ class _Parser:
                 self.unsupported("elt@base sin dst-unit-size")
             if "dst-unit-size" in attrs and attrs.get("base") not in ("32", "40"):
                 self.unsupported("elt@dst-unit-size sin base 32/40")
-            charset = attrs.get("charset", "")
-            if "CS_" in charset:
-                self.unsupported("charset predefinido CS_*")
+            for name in attrs.get("charset", "").split(";"):
+                if name.startswith("CS_") and parse_predefined_charset(name) is None:
+                    self.unsupported(f"charset predefinido {name}")
         index = attrs.get("table-index")
         if index is not None:
             if not TABLE_INDEX_RE.match(index):
@@ -402,8 +423,7 @@ class _Parser:
         line_ignore = None
         if ignore is not None:
             column, sep, value = ignore.partition(":")
-            if not sep:
-                self.unsupported(f"table@line-ignore={ignore}")
+            # Sin ":valor" se omiten las filas en que esa columna está vacía.
             line_ignore = (column, value)
         operator = el.get("line-ignore-operator", "==")
         if operator not in COMPARE_OPERATORS:
@@ -436,9 +456,12 @@ class _Parser:
         )
 
     def format(self, el: ET.Element) -> NamedFormat:
-        self.check_attrs(el, {"id", "apply-to", "input-as-subcolumns-input"})
-        if "formatter" in el.attrib:
-            self.unsupported("format@formatter")
+        self.check_attrs(el, {"id", "apply-to", "input-as-subcolumns-input", "formatter"})
+        formatter = el.get("formatter")
+        if formatter is not None:
+            problem = formatter_problem(formatter)
+            if problem:
+                self.unsupported(f"format@{problem}")
         apply_to = el.get("apply-to", "value")
         if apply_to not in ("value", "char"):
             self.unsupported(f"format@apply-to={apply_to}")
@@ -483,6 +506,7 @@ class _Parser:
             operations=tuple(operations),
             apply_to_char=apply_to == "char",
             subcolumns_input=is_true(el.get("input-as-subcolumns-input")),
+            formatter=formatter,
         )
 
     def charset(self, el: ET.Element) -> Charset:
@@ -496,7 +520,10 @@ class _Parser:
                 self.unsupported(f"<charset/{char.tag}>")
                 continue
             self.check_attrs(char, {"src", "dst", "default"})
-            src = parse_literal(char.get("src", ""))
+            raw_src = char.get("src", "").strip()
+            src = parse_literal(raw_src)
+            if not isinstance(src, int) and re.fullmatch(r"[0-9a-fA-F]{1,2}", raw_src):
+                src = int(raw_src, 16)  # hexadecimal sin 0x ("2D", "FE"): no puede ser decimal
             if not isinstance(src, int):
                 self.unsupported(f"char@src={char.get('src')}")
                 continue
@@ -534,7 +561,7 @@ class _Parser:
                     self.unsupported("loop@skip-* mayor que el bucle")
             for e in elts:
                 for name in e.attrs.get("charset", "").split(";"):
-                    if name and "CS_" not in name and name not in d.charsets:
+                    if name and not name.startswith("CS_") and name not in d.charsets:
                         raise DefinitionError(f"{self.game}: charset inexistente {name!r}")
                 if "bitmask" in e.attrs:
                     if e.attrs["bitmask"] not in d.bitmasks:

@@ -6,6 +6,8 @@ from arcade_hall_of_fame.hi2txt.formats import (
     NamedFormat,
     Operation,
     SubColumn,
+    formatter_problem,
+    java_format,
     render,
 )
 from arcade_hall_of_fame.models import FormatError
@@ -36,6 +38,12 @@ class ImplicitFormatsTest(unittest.TestCase):
         self.assertEqual(self.apply("12", "Suffix%"), "12%")
         self.assertEqual(self.apply("", "Suffix%"), "")
         self.assertEqual(self.apply(255, "0x"), "0xFF")
+
+    def test_desplazamiento_a_la_derecha(self):
+        # 0b110110: bits 2-3 = 01, bits 4-5 = 11
+        self.assertEqual(self.apply(0b110110, ">2", "%4"), 1)
+        self.assertEqual(self.apply(0b110110, ">4", "%4"), 3)
+        self.assertEqual(self.engine.unsupported((">2",)), [])
 
     def test_celda_vacia_en_aritmetica(self):
         self.assertEqual(self.apply(None, "+1"), 1)  # comportamiento de hi2txt
@@ -105,3 +113,39 @@ class NamedFormatsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JavaFormatterTest(unittest.TestCase):
+    def test_enteros(self):
+        self.assertEqual(java_format("%02d", 5), "05")
+        self.assertEqual(java_format("%02d", 123), "123")
+        self.assertEqual(java_format("%d", 2.29), "2")  # trunca, como el Mr. Do! de referencia
+        self.assertEqual(java_format("%4d", -7), "  -7")
+        self.assertEqual(java_format("%-4d|", 7), "7   |")
+        self.assertEqual(java_format("%+d", 7), "+7")
+        self.assertEqual(java_format("%,d", 1234567), "1,234,567")
+        self.assertEqual(java_format("%04X", 255), "00FF")
+
+    def test_decimales_redondean_hacia_arriba(self):
+        self.assertEqual(java_format("%.1f", 12.25), "12.3")
+        self.assertEqual(java_format("%.2f", 2.675), "2.68")  # 2.675 no es exacto en binario
+        self.assertEqual(java_format("%.1f", 5), "5.0")
+        self.assertEqual(java_format("%f", 1.5), "1.500000")
+        self.assertEqual(java_format("%04.1f", 3.14), "03.1")
+        self.assertEqual(java_format("%.2fsec", 9.5), "9.50sec")
+
+    def test_texto_y_literales(self):
+        self.assertEqual(java_format("%s!", "AB"), "AB!")
+        self.assertEqual(java_format("%3s", "A"), "  A")
+        self.assertEqual(java_format("100%%", 0), "100%")
+
+    def test_patrones_admitidos(self):
+        for pattern in ("%02d", "%.2fsec", "%04.1f", "%.1fkg", "%s", "x%%"):
+            self.assertIsNone(formatter_problem(pattern), pattern)
+        for pattern in ("%d%d", "%tY", "%1$d", "%(d", "50%"):
+            self.assertIsNotNone(formatter_problem(pattern), pattern)
+
+    def test_formatter_tras_las_operaciones(self):
+        fmt = NamedFormat("seg", (Operation("remainder", "100"),), formatter="%02d")
+        engine = FormatEngine({"seg": fmt})
+        self.assertEqual(engine.apply(1205, ("seg",), Context()), "05")

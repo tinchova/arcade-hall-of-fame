@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import re
+from decimal import ROUND_HALF_UP, Decimal
 from dataclasses import dataclass, field
 from typing import Callable, Union
 
@@ -44,6 +45,7 @@ class NamedFormat:
     operations: tuple[Operation, ...]
     apply_to_char: bool = False
     subcolumns_input: bool = False
+    formatter: str | None = None  # cadena de formato estilo Java, tras las operaciones
 
 
 SIMPLE_OPERATIONS = {
@@ -154,6 +156,7 @@ _IMPLICIT_NUMERIC = {
     "d": "divide_trunc", "D": "divide_round", "%": "remainder",
 }
 _IMPLICIT_NUMERIC_RE = re.compile(r"^([+\-*/dD%])(-?\d+(?:\.\d+)?)$")
+_IMPLICIT_SHIFT_RE = re.compile(r"^>(\d+)$")
 _IMPLICIT_WORDS = {
     "LC": "lowercase", "Lowercase": "lowercase",
     "UC": "uppercase", "Uppercase": "uppercase",
@@ -170,6 +173,9 @@ def implicit_operation(identifier: str) -> Operation | None:
     match = _IMPLICIT_NUMERIC_RE.match(identifier)
     if match:
         return Operation(_IMPLICIT_NUMERIC[match.group(1)], match.group(2))
+    match = _IMPLICIT_SHIFT_RE.match(identifier)
+    if match:  # ">N": desplazamiento de N bits a la derecha
+        return Operation("shift_right", match.group(1))
     if identifier in _IMPLICIT_WORDS:
         return Operation(_IMPLICIT_WORDS[identifier], "")
     for prefix, direction in (("TrimL", "left"), ("TrimR", "right"), ("Trim", "both")):
@@ -264,12 +270,13 @@ class FormatEngine:
         return self._apply_operations(value, (op,), ctx, subcolumns_input=False)
 
     def _apply_named(self, value: Value, fmt: NamedFormat, ctx: Context) -> Value:
+        def run(item: Value) -> Value:
+            result = self._apply_operations(item, fmt.operations, ctx, fmt.subcolumns_input)
+            return java_format(fmt.formatter, result) if fmt.formatter is not None else result
+
         if fmt.apply_to_char:
-            return "".join(
-                render(self._apply_operations(char, fmt.operations, ctx, fmt.subcolumns_input))
-                for char in render(value)
-            )
-        return self._apply_operations(value, fmt.operations, ctx, fmt.subcolumns_input)
+            return "".join(render(run(char)) for char in render(value))
+        return run(value)
 
     def _apply_operations(self, value, operations, ctx, subcolumns_input) -> Value:
         index = 0
@@ -307,7 +314,7 @@ class FormatEngine:
 
     def _apply_operation(self, value, op: Operation, ctx, subcolumns_input) -> Value:
         kind = op.kind
-        if kind in _ARITHMETIC or kind in ("trunc", "round"):
+        if kind in _ARITHMETIC or kind in ("trunc", "round", "shift_right"):
             if value is None or render(value).strip() == "":
                 value = 0  # hi2txt opera una celda vacía como cero
         if kind in _ARITHMETIC:
@@ -317,6 +324,8 @@ class FormatEngine:
                 return f"0x{value:X}"
             text = render(value)
             return "0x" + text if text else text
+        if kind == "shift_right":
+            return int(to_number(value)) >> int(op.text)
         if kind == "trunc":
             return int(to_number(value))
         if kind == "round":
@@ -367,6 +376,79 @@ class FormatEngine:
         else:
             base = ctx.lookup(child.source)
         return self.apply(base, child.formats, ctx)
+
+
+# --- formatter: subconjunto de la sintaxis de java.util.Formatter -------------
+
+_SPEC = re.compile(r"%(?P<flags>[-#+ 0,(]*)(?P<width>\d+)?(?:\.(?P<precision>\d+))?(?P<conv>[dfsSxXn%])")
+
+
+def formatter_problem(pattern: str) -> str | None:
+    """Motivo por el que ``pattern`` no se puede aplicar, o ``None`` si se puede.
+
+    Se admite un solo valor (``%d``, ``%02d``, ``%.2f``, ``%s``, ``%X``...) más
+    texto literal, ``%%`` y ``%n``; es lo que usan las definiciones de hi2txt.
+    """
+    specs = 0
+    position = 0
+    for match in _SPEC.finditer(pattern):
+        if "%" in pattern[position:match.start()]:
+            return f"formatter={pattern}"
+        position = match.end()
+        conv, flags = match["conv"], match["flags"]
+        if conv in "%n":
+            continue
+        specs += 1
+        if "(" in flags or "#" in flags or ("," in flags and conv not in "df"):
+            return f"formatter={pattern}"
+        if match["precision"] is not None and conv in "dxX":
+            return f"formatter={pattern}"
+    if "%" in pattern[position:] or specs > 1:
+        return f"formatter={pattern}"
+    return None
+
+
+def java_format(pattern: str, value: Value) -> str:
+    """Aplica una cadena de formato estilo Java a un único valor.
+
+    Como en Java, ``%f`` redondea la mitad hacia arriba (6 decimales si no se
+    indica precisión). ``%d`` y ``%x`` truncan un valor con decimales.
+    """
+    def one(match: re.Match) -> str:
+        conv, flags = match["conv"], match["flags"]
+        if conv == "%":
+            return "%"
+        if conv == "n":
+            return "\n"
+        width = int(match["width"] or 0)
+        if conv in "sS":
+            text = render(value)
+            if match["precision"] is not None:
+                text = text[: int(match["precision"])]
+            if conv == "S":
+                text = text.upper()
+            return text.ljust(width) if "-" in flags else text.rjust(width)
+        number = to_number(value if value is not None and render(value).strip() else 0)
+        if conv == "f":
+            digits = int(match["precision"]) if match["precision"] is not None else 6
+            exact = Decimal(repr(float(number))) if isinstance(number, float) else Decimal(number)
+            quantized = exact.quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP)
+            negative = quantized < 0
+            body = f"{abs(quantized):,.{digits}f}" if "," in flags else f"{abs(quantized):.{digits}f}"
+        else:
+            integer = int(number)
+            negative = integer < 0
+            if conv == "d":
+                body = f"{abs(integer):,d}" if "," in flags else str(abs(integer))
+            else:
+                body = format(abs(integer), conv)
+        sign = "-" if negative else "+" if "+" in flags else " " if " " in flags else ""
+        if "0" in flags and "-" not in flags:
+            return sign + body.rjust(width - len(sign), "0")
+        text = sign + body
+        return text.ljust(width) if "-" in flags else text.rjust(width)
+
+    return _SPEC.sub(one, pattern)
 
 
 def _trim(text: str, token: str, direction: str) -> str:
