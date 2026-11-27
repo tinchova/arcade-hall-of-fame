@@ -4,15 +4,15 @@
 # solo (aserción PreventUserIdleDisplaySleep), así que esto lo hace a mano con
 # "pmset displaysleepnow", que no necesita sudo. La Mac sigue despierta: la
 # página web y Tailscale siguen respondiendo. Tocar una tecla o el mouse
-# vuelve a encender la pantalla. Un joystick USB genérico probablemente no
-# cuenta como uso (ver docs/INTEGRACION_ESDE.md).
+# vuelve a encender la pantalla. Los joysticks USB genéricos probados sí
+# cuentan como uso (ver docs/JOYSTICK.md y contrib/macos/probar_joystick.sh).
 #
 # Uso: contrib/macos/apagar_pantalla.sh [--prueba] [SEGUNDOS]
 #   SEGUNDOS  tiempo sin uso antes de apagar (por defecto $APAGAR_TRAS o 1800).
 #   --prueba  solo informa qué haría; no apaga ni guarda nada.
 # Variable opcional: JUEGOS (procesos que cuentan como juego abierto,
 # separados por espacios; por defecto "RetroArch").
-# Mientras haya un juego abierto no apaga la pantalla (el joystick puede no
+# Mientras haya un juego abierto no apaga la pantalla (un mando puede no
 # contar como uso); al cerrarlo, el tiempo sin uso se cuenta desde el cierre.
 # Pensado para correr cada minuto (LaunchAgent, ver instalar_apagar_pantalla.sh).
 # Apaga una sola vez por período de inactividad: si alguien enciende la pantalla

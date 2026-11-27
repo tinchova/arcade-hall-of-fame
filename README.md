@@ -14,6 +14,7 @@ Proyecto para clasificar jugadores de máquinas arcade por la cantidad de juegos
 - [Protocolo de validación con archivos reales](docs/VALIDACION.md) y resultados de cobertura.
 - [Cobertura sobre la colección de FBNeo de la iMac](docs/COBERTURA_FBNEO.md): qué juegos se pueden leer y por qué no el resto.
 - [Integración con ES-DE](docs/INTEGRACION_ESDE.md): protector de pantalla con imágenes propias y sistema "Salón de la Fama" que abre la página web.
+- [Joysticks USB genéricos](docs/JOYSTICK.md): hoja de referencia de botones en ES-DE y en los juegos, atajos de RetroArch, juegos de carreras y jugador 1 / jugador 2.
 - [Contribución y preparación para GitHub](CONTRIBUTING.md).
 
 ## Primer entorno objetivo
@@ -164,7 +165,7 @@ Toca solo `~/ES-DE/custom_systems/es_systems.xml` (antes deja una copia con la f
 
 ### Apagar la pantalla sin uso
 
-ES-DE no deja que macOS apague la pantalla. `contrib/macos/instalar_apagar_pantalla.sh` instala un LaunchAgent que, tras 30 minutos sin teclado ni mouse (`APAGAR_TRAS=segundos` para cambiarlo), apaga solo la pantalla con `pmset displaysleepnow`, sin suspender la Mac: la página y Tailscale siguen andando. Con un juego abierto (RetroArch) no la apaga. Detalles y límites (joysticks) en [INTEGRACION_ESDE.md](docs/INTEGRACION_ESDE.md#apagar-la-pantalla-sin-uso).
+ES-DE no deja que macOS apague la pantalla. `contrib/macos/instalar_apagar_pantalla.sh` instala un LaunchAgent que, tras 30 minutos sin teclado ni mouse (`APAGAR_TRAS=segundos` para cambiarlo), apaga solo la pantalla con `pmset displaysleepnow`, sin suspender la Mac: la página y Tailscale siguen andando. Con un juego abierto (RetroArch) no la apaga. Los joysticks USB probados cuentan como uso. Detalles y límites en [INTEGRACION_ESDE.md](docs/INTEGRACION_ESDE.md#apagar-la-pantalla-sin-uso).
 
 ## Uso actual
 
