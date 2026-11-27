@@ -13,7 +13,7 @@ Proyecto para clasificar jugadores de máquinas arcade por la cantidad de juegos
 - [Arquitectura y plan de implementación](docs/PLAN.md), con el estado de cada etapa.
 - [Protocolo de validación con archivos reales](docs/VALIDACION.md) y resultados de cobertura.
 - [Cobertura sobre la colección de FBNeo de la iMac](docs/COBERTURA_FBNEO.md): qué juegos se pueden leer y por qué no el resto.
-- [Integración con ES-DE](docs/INTEGRACION_ESDE.md): protector de pantalla con imágenes propias y sistema "Salón de la Fama" que abre la página web.
+- [Integración con ES-DE](docs/INTEGRACION_ESDE.md): protector de pantalla con imágenes propias y sistema "Otros" que abre la página web y apaga la Mac.
 - [Joysticks USB genéricos](docs/JOYSTICK.md): hoja de referencia de botones en ES-DE y en los juegos, atajos de RetroArch, juegos de carreras y jugador 1 / jugador 2.
 - [Contribución y preparación para GitHub](CONTRIBUTING.md).
 
@@ -153,7 +153,10 @@ La página **no tiene cuentas ni contraseñas**: cualquiera conectado a la misma
 
 ### Abrirla desde ES-DE
 
-`contrib/macos/instalar_esde.sh` agrega a ES-DE un sistema propio, **Salón de la Fama**, con una entrada, **Poner nombres**, que abre la página en Firefox a pantalla completa (modo kiosco, con un perfil propio). Al cerrar Firefox con **Cmd+Q** se vuelve a ES-DE. Si la página no está instalada como LaunchAgent, la entrada la levanta mientras Firefox está abierto. Firefox se abre como instancia aparte (`open -n`) aunque haya otro Firefox abierto; si en 30 segundos no quedó al frente, se cierra y se vuelve a ES-DE (registro en `~/Library/Logs/arcade-hall-of-fame-esde.log`).
+`contrib/macos/instalar_esde.sh` agrega a ES-DE un sistema propio, **Otros** (nombre interno `salondelafama`), con dos entradas:
+
+- **Salón de la Fama** abre la página en Firefox a pantalla completa (modo kiosco, con un perfil propio). Al cerrar Firefox con **Cmd+Q** se vuelve a ES-DE. Si la página no está instalada como LaunchAgent, la entrada la levanta mientras Firefox está abierto. Firefox se abre como instancia aparte (`open -n`) aunque haya otro Firefox abierto; si en 30 segundos no quedó al frente, se cierra y se vuelve a ES-DE (registro en `~/Library/Logs/arcade-hall-of-fame-esde.log`).
+- **Apagar la Mac** apaga la Mac en orden (como el menú Apple > Apagar, sin contraseña). Para que no se apague por error con el joystick, hay que elegirla **dos veces en 15 segundos**: la primera vez avisa con una notificación ("¿Apagar la Mac?") y con voz, y vuelve enseguida a ES-DE; si no se vuelve a elegir, no pasa nada.
 
 ```sh
 ~/arcade-hall-of-fame/contrib/macos/instalar_esde.sh
@@ -161,7 +164,7 @@ La página **no tiene cuentas ni contraseñas**: cualquiera conectado a la misma
 ~/arcade-hall-of-fame/contrib/macos/instalar_esde.sh --desinstalar
 ```
 
-Toca solo `~/ES-DE/custom_systems/es_systems.xml` (antes deja una copia con la fecha, `es_systems.xml.bak-AAAAMMDD-HHMMSS`) y crea `~/ROMs/salondelafama/Poner nombres.sh`. No toca `es_settings.xml`. ES-DE lee los sistemas al arrancar: hay que cerrarlo y volver a abrirlo para que aparezca. Ver [INTEGRACION_ESDE.md](docs/INTEGRACION_ESDE.md#salón-de-la-fama-como-sistema-de-es-de).
+Toca solo `~/ES-DE/custom_systems/es_systems.xml` (antes deja una copia con la fecha, `es_systems.xml.bak-AAAAMMDD-HHMMSS`), crea `~/ROMs/salondelafama/Salón de la Fama.sh` y `Apagar la Mac.sh` (y borra el viejo `Poner nombres.sh`) y copia las imágenes de las dos entradas (`contrib/esde/medios`) a `~/ES-DE/downloaded_media/salondelafama`. No toca `es_settings.xml` ni el tema. ES-DE lee los sistemas al arrancar: hay que cerrarlo y volver a abrirlo para que aparezca. Ver [INTEGRACION_ESDE.md](docs/INTEGRACION_ESDE.md#sistema-otros-en-es-de).
 
 ### Apagar la pantalla sin uso
 
