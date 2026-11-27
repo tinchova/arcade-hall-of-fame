@@ -63,5 +63,7 @@ Thumbs.db
 *.bmp
 *.tif
 *.tiff
+# Excepción: imágenes generadas para las entradas de ES-DE (contrib/esde/generar_otros.py)
+!contrib/esde/medios/*.png
 *.mov
 *.mp4
