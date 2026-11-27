@@ -34,7 +34,7 @@ Con ES-DE abierto, macOS nunca apaga la pantalla: ES-DE tiene la aserción `Prev
 - Apaga una vez por período sin uso: guarda la hora del apagado en `~/Library/Application Support/arcade-hall-of-fame/apagar_pantalla.estado` y no vuelve a apagar hasta que haya uso y pase otro período completo. Así, si la pantalla se enciende sin tocar nada, no se apaga cada minuto.
 - Con un juego abierto no apaga la pantalla, aunque pasen los 30 minutos: mientras corra RetroArch (`pgrep -x RetroArch`; otros procesos con `JUEGOS="RetroArch otro"`), no hace nada y el registro lo anota una vez ("juego abierto (RetroArch), no se apaga"). Al cerrar el juego, el tiempo sin uso se cuenta desde el cierre, así que no se apaga enseguida. Sirve sobre todo por los joysticks (ver abajo).
 - `--prueba` solo informa qué haría, sin apagar ni guardar nada: sirve para probar la lógica con un umbral corto (`contrib/macos/apagar_pantalla.sh --prueba 5`).
-- Joysticks: `HIDIdleTime` cuenta los eventos que macOS trata como teclado y mouse. Un encoder arcade que se presenta como teclado cuenta como uso. Un joystick USB genérico (página HID 1, uso 4 o 5, sin controlador) probablemente **no** lo reinicia, porque macOS no lo trata como actividad del usuario. En la iMac no se pudo comprobar: el 2026-11-26 no había ningún joystick USB conectado (solo el receptor Logitech de teclado y mouse) y ES-DE estaba configurado solo con teclado. Si se conecta uno, probar `--prueba 5` mientras se lo mueve: si los segundos sin uso no vuelven a cero, el joystick no cuenta. Dentro de un juego no importa (con RetroArch abierto no se apaga); en el menú de ES-DE, usarlo solo con el joystick más de 30 minutos apagaría la pantalla, que se enciende con una tecla o el mouse.
+- Joysticks: `HIDIdleTime` cuenta los eventos que macOS trata como teclado y mouse. Un encoder arcade que se presenta como teclado cuenta como uso. Un joystick USB genérico (página HID 1, uso 4 o 5, sin controlador) probablemente **no** lo reinicia, porque macOS no lo trata como actividad del usuario. En la iMac todavía no se comprobó con los dos joysticks "Lion King" que se conectaron el 2026-11-26 (ver la sección Joysticks). Si se conecta uno, probar `--prueba 5` mientras se lo mueve: si los segundos sin uso no vuelven a cero, el joystick no cuenta. Dentro de un juego no importa (con RetroArch abierto no se apaga); en el menú de ES-DE, usarlo solo con el joystick más de 30 minutos apagaría la pantalla, que se enciende con una tecla o el mouse.
 
 Instalación (LaunchAgent `com.arcade-hall-of-fame.pantalla`, que corre el script cada 60 segundos):
 
@@ -47,6 +47,32 @@ APAGAR_TRAS=3600 ~/arcade-hall-of-fame/contrib/macos/instalar_apagar_pantalla.sh
 ```
 
 El registro (`~/Library/Logs/arcade-hall-of-fame-pantalla.log`) anota solo los apagados y los períodos en que no apagó por un juego abierto.
+
+## Joysticks
+
+En la iMac hay dos joysticks USB genéricos "Lion King" (Microntek "USB Joystick", DragonRise, VID `0x0079`, PID `0x0006`, página HID 1, uso 4). SDL los ve como 4 ejes, 12 botones y 1 hat, GUID `0300be79790000000600000007010000`. Arreglado el 2026-11-26.
+
+**Problema 1: ES-DE se caía.** Con los joysticks conectados, ES-DE (SDL 2.30.2) se caía al arrancar o al llegar datos del joystick, con EXC_BAD_ACCESS o SIGILL en `hid_report_callback`, dentro de libSDL2. Causa: SDL trata el vendor DragonRise como posible mando de PlayStation (`HIDAPI_SupportsPlaystationDetection` en `SDL_hidapijoystick.c`). Para averiguarlo abre el dispositivo con su hidapi (`src/hidapi/mac/hid.c`), le manda reportes de prueba y lo cierra. Al cerrarlo, `hid_close` vuelve a programar el dispositivo en el run loop principal, y macOS sigue llamando al callback de reportes con el `hid_device` ya liberado: es un use-after-free. Los registros de los crashes muestran basura en la lista de reportes (`rax = "perclass"` en ASCII) y un heap corrompido en `calloc`. SDL 2.32.x tiene el mismo código: sigue haciendo la sonda para DragonRise y `hid_close` solo cambió en un detalle. No encontré un arreglo publicado, así que **no** se cambió la libSDL2 (la original 2.30.2 sigue en uso).
+
+Arreglo: el hint `SDL_HIDAPI_IGNORE_DEVICES=0x0079/0x0006` hace que el hidapi de SDL no enumere ni abra esos joysticks. Igual funcionan por el driver IOKit de SDL. Los demás mandos siguen usando HIDAPI. El hint se pasa con `LSEnvironment` en `/Applications/ES-DE.app/Contents/Info.plist`, que llega al abrir ES-DE desde Finder, el Dock, `open -a` o los ítems de inicio de sesión. La app no está firmada, así que editar el plist no rompe ninguna firma. Después se registra de nuevo con `lsregister -f /Applications/ES-DE.app`. `launchctl setenv` no sirvió (crash 204944). Abrir ES-DE desde una sesión SSH tampoco sirve para probar: usar `open -a` desde SSH, que lo abre en la sesión gráfica. Para comprobar que la variable le llegó: `ps eww -p $(pgrep -x ES-DE) | tr ' ' '\n' | grep SDL_`.
+
+**Si se recompila o reinstala ES-DE, el `Info.plist` se pisa y hay que volver a agregarlo:**
+
+```sh
+P=/Applications/ES-DE.app/Contents/Info.plist
+/usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" -c "Add :LSEnvironment:SDL_HIDAPI_IGNORE_DEVICES string 0x0079/0x0006" "$P"
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/ES-DE.app
+```
+
+**Problema 2: ES-DE no los reconocía.** ES-DE usa solo la API GameController de SDL y no tiene en cuenta los joysticks sin mapeo (`SDL_IsGameController`). SDL 2.30.2 no trae un mapeo para este GUID en macOS. Se creó `~/ES-DE/controllers/es_controller_mappings.cfg`, una copia del archivo de ejemplo de la app más la línea de la entrada "Marvo GT-004" de SDL_GameControllerDB (mismo GUID sin CRC, `03000000790000000600000007010000`, misma cantidad de botones y ejes), con el nombre "Lion King USB Joystick". El stick está mapeado como hat (dpad) y como ejes 0/1, porque no se sabe cuál de los dos usa. Con eso el log dice `Loaded 1 controller mapping` y `Added controller with default configuration: "Lion King USB Joystick"` dos veces (instance ID 0 y 1).
+
+Falta la configuración de botones, que hace Nico frente a la Mac: en ES-DE, menú → INPUT DEVICE SETTINGS → CONFIGURE KEYBOARD AND CONTROLLERS, apretando los botones de cada joystick. Si un botón queda mal en el mapeo de SDL (por ejemplo, si el stick no mueve el cursor), se corrige en la línea del `.cfg`.
+
+Para diagnosticar: en `~/joytest/` de la iMac hay dos programas chicos (`joytest`, `gc`) que cargan la misma libSDL2 de ES-DE y muestran los joysticks que ve SDL, su GUID y si tienen mapeo. Usarlos con `SDL_HIDAPI_IGNORE_DEVICES=0x0079/0x0006` delante.
+
+**RetroArch** (1.22.2) no usa SDL para los mandos: `input_joypad_driver = "hid"` (IOHIDManager), así que no le afecta el crash. El registro (`--verbose`) muestra los dos joysticks: `[IOHID] Port 0/1: USB Joystick`, `0079:0006`, slots 0 y 1. Al no coincidir el nombre, la autoconfiguración eligió por VID/PID `autoconfig/hid/Retrolink_N64_USB_Controller.cfg` en los dos puertos, que es para otro mando con el mismo VID/PID; también existe `DragonRise_ZeroDelay.cfg`. Los botones de RetroArch todavía no se configuraron. Lo correcto es hacer un autoconfig propio para "USB Joystick" (Ajustes → Entrada → Controles del puerto 1 → Guardar autoconfiguración) apretando los botones.
+
+Copias y cómo volver atrás: `~/backups/esde-joystick-20261126/` tiene el `Info.plist` y la `libSDL2-2.0.0.dylib` originales y el `es_log.txt` de antes. Para deshacer: copiar ese `Info.plist` sobre el de la app y correr `lsregister -f`; borrar `~/ES-DE/controllers/es_controller_mappings.cfg`.
 
 ## Volver atrás en la iMac
 
