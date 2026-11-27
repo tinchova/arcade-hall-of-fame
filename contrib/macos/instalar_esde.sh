@@ -255,7 +255,7 @@ cat > "$APAGADO" <<'EOF'
 # (notificación y voz) y vuelve enseguida a ES-DE.
 # "sh 'Apagar la Mac.sh' --prueba" muestra qué haría, sin avisar ni apagar.
 PLAZO=15
-VOZ=Diego  # voz de "say" (es_AR); vacía para no hablar
+VOZ=  # voz de "say" (por ejemplo Diego, es_AR); vacía para no hablar (por defecto, sin voz)
 DIR="$HOME/Library/Application Support/arcade-hall-of-fame"
 MARCA="$DIR/apagar.marca"
 REGISTRO="$HOME/Library/Logs/arcade-hall-of-fame-esde.log"
