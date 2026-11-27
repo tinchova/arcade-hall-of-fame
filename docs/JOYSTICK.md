@@ -80,19 +80,17 @@ El perfil de RetroArch (`contrib/retroarch/autoconfig/hid/USB_Joystick_0079_0006
 
 ## Atajos de RetroArch con el joystick
 
-Se mantiene apretado SELECT y se aprieta el otro botón. Solo funcionan en el joystick del **jugador 1**.
+Son combinaciones de RetroArch (`config/retroarch.cfg`), no del perfil del joystick. **SELECT no es atajo**: va siempre al juego y pone créditos.
 
-| Combinación | Qué hace |
-|---|---|
-| SELECT + START | salir del juego y volver a ES-DE (RetroArch pide confirmar: apretar otra vez) |
-| SELECT + 1 | menú de RetroArch (con el juego en pausa) |
-| SELECT + R1 | guardar el estado (partida guardada al instante) |
-| SELECT + L1 | cargar el estado guardado |
+| Combinación | Qué hace | Configuración |
+|---|---|---|
+| L2 + R2 juntos | salir del juego y volver a ES-DE (RetroArch pide confirmar: apretar otra vez) | `input_quit_gamepad_combo = "10"`, `confirm_quit = "true"` |
+| START mantenido (unos 2 segundos) | menú de RetroArch (con el juego en pausa) | `input_menu_toggle_gamepad_combo = "7"` |
 
-- Un toque corto de SELECT sigue poniendo una moneda. Mientras SELECT está apretado (después de unos 5 cuadros), los demás botones no le llegan al juego, así que las combinaciones no se cuelan en la partida.
-- Si se pone una moneda y enseguida START sin soltar SELECT, aparece el aviso para salir; no sale si no se aprieta de nuevo.
-- En el menú de RetroArch: cruz para moverse, 3 (abajo) para aceptar y 2 (derecha) para volver. SELECT + 1 de nuevo cierra el menú y sigue el juego.
-- El teclado sigue igual: Esc sale (con confirmación), F1 abre el menú, F2 guarda y F4 carga.
+- Un toque corto de START sigue siendo START en el juego.
+- En el menú de RetroArch: cruz para moverse, 3 (abajo) para aceptar y 2 (derecha) para volver.
+- No hay atajos de guardar o cargar el estado con el joystick. Con el teclado: Esc sale (con confirmación), F1 abre el menú, F2 guarda y F4 carga.
+- Antes se probaron atajos con SELECT (`input_enable_hotkey_btn`): con SELECT como habilitador, RetroArch no le pasaba SELECT al juego y no se podían poner créditos. Por eso el perfil no tiene ningún atajo.
 
 ## Juegos de carreras
 
@@ -136,7 +134,7 @@ Sin el parche, los botones de la configuración quedan mal (otra numeración) y 
 
 ## Archivos (RetroArch, en `~/Library/Application Support/RetroArch/`)
 
-- `autoconfig/hid/USB_Joystick_0079_0006.cfg`: el perfil (copia de `contrib/retroarch/autoconfig/hid/`), con los botones, la cruz (h0 y ejes 0/1), las dos palancas y los atajos con SELECT. Solo sirve con RetroArch parcheado. Gana sobre `Retrolink_N64_USB_Controller.cfg` y `DragonRise_ZeroDelay.cfg` (otros mandos con el mismo VID/PID) porque también coincide el nombre, "USB Joystick" con 10 espacios al final, tal como lo informa el dispositivo. RetroArch lo confirma en el registro: `[Autoconf] Lion King USB Joystick configured in port 1` y `port 2`.
+- `autoconfig/hid/USB_Joystick_0079_0006.cfg`: el perfil (copia de `contrib/retroarch/autoconfig/hid/`), con los botones, la cruz (h0 y ejes 0/1), y las dos palancas (sin atajos). Solo sirve con RetroArch parcheado. Gana sobre `Retrolink_N64_USB_Controller.cfg` y `DragonRise_ZeroDelay.cfg` (otros mandos con el mismo VID/PID) porque también coincide el nombre, "USB Joystick" con 10 espacios al final, tal como lo informa el dispositivo. RetroArch lo confirma en el registro: `[Autoconf] Lion King USB Joystick configured in port 1` y `port 2`.
 - `config/retroarch.cfg`: `input_joypad_driver = "hid"`, `input_max_users = "8"`, `input_player1_joypad_index = "0"`, `input_player2_joypad_index = "1"` y `confirm_quit = "true"`. Los jugadores 1 y 2 tienen los mismos binds que el perfil (x 0, a 1, b 2, y 3, l 4, r 5, l2 6, r2 7, select 8, start 9, cruz h0 más ejes, Left Analog +0/-0/+1/-1, Right Analog +4/-4/+5/-5). Estos binds mandan sobre el perfil. Además, `input_quit_gamepad_combo` y `input_menu_toggle_gamepad_combo`.
 - `autoconfig/hid/.autoconfig_index`: índice que arma RetroArch solo (un caché de qué perfil corresponde a cada mando). Si se borra, lo vuelve a armar.
 - `config/remaps/FinalBurn Neo/{outrun,shangon,chasehq}.rmp`: en los tres, B → R2 (acelerar) y A → L2 (frenar). Out Run agrega Y → R (marcha); Super Hang-On mantiene Y → B (Super Charger); Chase H.Q. mantiene X → R (marcha) e Y (turbo).
