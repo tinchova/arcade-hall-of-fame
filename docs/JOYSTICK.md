@@ -17,7 +17,7 @@ Para dos joysticks USB genéricos "Lion King" (Microntek "USB Joystick", DragonR
         cruz                                 botones
 ```
 
-Los botones de la derecha están en rombo: 1 arriba, 2 a la derecha, 3 abajo y 4 a la izquierda. La cruz es digital (no tiene palancas analógicas).
+Los botones de la derecha están en rombo: 1 arriba, 2 a la derecha, 3 abajo y 4 a la izquierda. Tiene además dos palancas analógicas y un botón ANALOG con luz. **Se usa con la luz ANALOG prendida.**
 
 | Botón físico | Número HID | RetroArch (driver hid) | RetroPad | Equivale en un mando de PlayStation |
 |---|---|---|---|---|
@@ -31,9 +31,13 @@ Los botones de la derecha están en rombo: 1 arriba, 2 a la derecha, 3 abajo y 4
 | R2 | 8 | botón 7 | R2 | R2 |
 | SELECT ("9") | 9 | botón 8 | Select | Select |
 | START ("10") | 10 | botón 9 | Start | Start |
-| Cruz | ejes X e Y (0 / 127 / 255) | ejes 0 y 1 | cruz (d-pad) | cruz |
+| Cruz | hat (0 arriba, 2 derecha, 4 abajo, 6 izquierda, 15 centro) | h0 (`h0up`, `h0down`, `h0left`, `h0right`) | cruz (d-pad) | cruz |
+| Palanca izquierda | ejes X e Y (0 a 255, centro 128) | ejes 0 y 1 | Left Analog | palanca izquierda |
+| Palanca derecha | ejes Z y Rz (0 a 255, centro 128) | ejes 4 y 5 | Right Analog | palanca derecha |
 
-Comprobado botón por botón con `contrib/macos/probar_joystick.sh`. La cruz mueve los ejes X e Y (arriba = Y en 0, abajo = Y en 255, izquierda = X en 0, derecha = X en 255). El dispositivo declara también un hat, pero la cruz no lo usa; el perfil de RetroArch lo mapea igual por si acaso.
+Comprobado botón por botón con `contrib/macos/probar_joystick.sh` y con los reportes USB crudos. Con la luz ANALOG **prendida**, la cruz es el hat y cada palanca manda sus ejes en forma gradual. Con la luz **apagada**, la cruz y la palanca izquierda mandan los mismos ejes X e Y, todo o nada (0 / 127 / 255), y la palanca derecha aprieta los botones 1 a 4. El perfil y la configuración de RetroArch mapean la cruz al hat y también a los ejes 0 y 1, así que la cruz anda en los dos modos.
+
+**RetroArch necesita un parche para estos números** (ver [RetroArch y el driver DragonRise](#retroarch-y-el-driver-dragonrise)).
 
 ## En ES-DE (menú de juegos)
 
@@ -115,9 +119,25 @@ Los dos joysticks son iguales (mismo nombre, VID y PID). Lo único que los disti
 
 `apagar_pantalla.sh` apaga la pantalla tras un rato sin uso (`HIDIdleTime`). Comprobado con `probar_joystick.sh`: usar el joystick **sí** reinicia `HIDIdleTime` en macOS 10.15, igual que el teclado y el mouse (los botones y la cruz de los dos joysticks). Jugando solo con el joystick, la pantalla no se apaga. Si se apaga, la enciende el teclado o el mouse.
 
+## RetroArch y el driver DragonRise
+
+RetroArch 1.22.2, con el driver de joypad "hid", tiene una tabla fija de mandos conocidos por VID/PID (`input/connect/joypad_connection.c`). En esa tabla, 0079:0006 es "DragonRise ZeroDelay Encoder" (`connect_zerodelay_dragonrise.c`). Para ese mando RetroArch no usa la lectura genérica de IOKit: lee el reporte USB a su manera y solo da ejes si el byte 3 (la palanca derecha horizontal) vale exactamente 0x7F. Los Lion King mandan 0x80 en reposo, con la luz prendida y apagada, así que en RetroArch las palancas nunca se movían. La cruz salía como botones 4 a 7 y los botones con números de RetroPad fijos (B 0, Y 1, SELECT 2, START 3, A 8, X 9, L2 12, R2 13, L1 10, R1 11). Eso no se arregla con configuración y este build de RetroArch no trae SDL2 (solo los drivers "hid" y "mfi").
+
+Arreglo: `contrib/macos/parchear_retroarch.sh` cambia 2 bytes del binario (el PID de esa entrada de la tabla, `06 00` → `ff ff`), así ningún mando coincide con ella y RetroArch usa la lectura genérica: botones 0 a 9, cruz h0 y palancas en los ejes 0/1 y 4/5. El script busca la entrada por su nombre y su VID/PID (no usa un offset fijo), no toca nada si no la encuentra una sola vez, hace una copia del .app en `~/backups/` y re-firma ad hoc (`codesign -f -s -`). En 1.22.2 la entrada está en el offset `0xb55fa8` del binario.
+
+**Cada actualización de RetroArch borra el parche.** Después de actualizar, con RetroArch cerrado:
+
+```sh
+contrib/macos/parchear_retroarch.sh --comprobar   # informa SIN_PARCHE o PARCHEADO
+contrib/macos/parchear_retroarch.sh               # aplica el parche
+```
+
+Sin el parche, los botones de la configuración quedan mal (otra numeración) y las palancas no andan.
+
 ## Archivos (RetroArch, en `~/Library/Application Support/RetroArch/`)
 
-- `autoconfig/hid/USB_Joystick_0079_0006.cfg`: el perfil. Gana sobre `Retrolink_N64_USB_Controller.cfg` y `DragonRise_ZeroDelay.cfg` (otros mandos con el mismo VID/PID) porque también coincide el nombre, "USB Joystick" con 10 espacios al final, tal como lo informa el dispositivo. RetroArch lo confirma en el registro: `[Autoconf] Lion King USB Joystick configured in port 1` y `port 2`.
-- `config/retroarch.cfg`: no se cambió para el joystick. Ya tenía `input_joypad_driver = "hid"`, `input_max_users = "8"`, `input_player1_joypad_index = "0"`, `input_player2_joypad_index = "1"` y `confirm_quit = "true"`.
+- `autoconfig/hid/USB_Joystick_0079_0006.cfg`: el perfil (copia de `contrib/retroarch/autoconfig/hid/`), con los botones, la cruz (h0 y ejes 0/1), las dos palancas y los atajos con SELECT. Solo sirve con RetroArch parcheado. Gana sobre `Retrolink_N64_USB_Controller.cfg` y `DragonRise_ZeroDelay.cfg` (otros mandos con el mismo VID/PID) porque también coincide el nombre, "USB Joystick" con 10 espacios al final, tal como lo informa el dispositivo. RetroArch lo confirma en el registro: `[Autoconf] Lion King USB Joystick configured in port 1` y `port 2`.
+- `config/retroarch.cfg`: `input_joypad_driver = "hid"`, `input_max_users = "8"`, `input_player1_joypad_index = "0"`, `input_player2_joypad_index = "1"` y `confirm_quit = "true"`. Los jugadores 1 y 2 tienen los mismos binds que el perfil (x 0, a 1, b 2, y 3, l 4, r 5, l2 6, r2 7, select 8, start 9, cruz h0 más ejes, Left Analog +0/-0/+1/-1, Right Analog +4/-4/+5/-5). Estos binds mandan sobre el perfil. Además, `input_quit_gamepad_combo` y `input_menu_toggle_gamepad_combo`.
+- `autoconfig/hid/.autoconfig_index`: índice que arma RetroArch solo (un caché de qué perfil corresponde a cada mando). Si se borra, lo vuelve a armar.
 - `config/remaps/FinalBurn Neo/{outrun,shangon,chasehq}.rmp`: en los tres, B → R2 (acelerar) y A → L2 (frenar). Out Run agrega Y → R (marcha); Super Hang-On mantiene Y → B (Super Charger); Chase H.Q. mantiene X → R (marcha) e Y (turbo).
 - `config/FinalBurn Neo/{outrun,shangon,chasehq}.cfg`: overrides con `input_player1_a = "z"` e `input_player1_b = "x"`.
